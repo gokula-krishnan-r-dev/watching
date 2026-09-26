@@ -1,0 +1,61 @@
+# Local SDK / secrets
+local.properties
+google-services.json
+*.jks
+*.keystore
+keystore.properties
+.env
+.env.*
+google-services.json.backup
+
+# Gradle
+.gradle/
+build/
+**/build/
+dist/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.hprof
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kotlin
+.kotlin/
+
+# Firebase emulators / caches
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+*-debug.log
+
+# Node (Cloud Functions)
+functions/node_modules/
+functions/lib/
+functions/.secret.local
+functions/.env
+functions/.env.*
+
+# Docs PDF toolchain (existing)
+.venv-pdf/
+docs/pdf-build/
+
+# Test / lint outputs
+*.exec
+lint/reports/
+/reports/
+/apps/admin/node_modules
+/stitch_meritscreen_android_ui_kit 3/calm_horizon
+/stitch_meritscreen_android_ui_kit 3
+/stitch_meritscreen_android_ui_kit/c04_child_device_pairing_setup
+/stitch_meritscreen_android_ui_kit

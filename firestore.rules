@@ -1,0 +1,254 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    /**
+     * Custom claims are optional on parent password/Google tokens. Accessing a missing
+     * claim key can fail the whole rule expression (deny). Always guard with `in`.
+     */
+    function hasClaim(name) {
+      return signedIn() && name in request.auth.token;
+    }
+
+    function isChildDevice() {
+      return hasClaim('role') && request.auth.token.role == 'child_device';
+    }
+
+    function isSuperAdmin() {
+      return hasClaim('role') && request.auth.token.role == 'super_admin';
+    }
+
+    function childDeviceOf(familyId, childId) {
+      return isChildDevice()
+        && hasClaim('familyId')
+        && hasClaim('childId')
+        && request.auth.token.familyId == familyId
+        && request.auth.token.childId == childId;
+    }
+
+    function isFamilyMember(familyId) {
+      return signedIn()
+        && !isChildDevice()
+        && exists(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid));
+    }
+
+    function isFamilyOwner(familyId) {
+      return signedIn()
+        && !isChildDevice()
+        && get(/databases/$(database)/documents/families/$(familyId)).data.ownerUid == request.auth.uid;
+    }
+
+    /** After-image owner check for batch create (family + first member). */
+    function willBeFamilyOwner(familyId) {
+      return signedIn()
+        && !isChildDevice()
+        && getAfter(/databases/$(database)/documents/families/$(familyId)).data.ownerUid
+          == request.auth.uid;
+    }
+
+    /** Child device docs the token claims to own, for revoked / field checks. */
+    function ownDevicePath(familyId, childId, deviceId) {
+      return /databases/$(database)/documents/families/$(familyId)/children/$(childId)/devices/$(deviceId);
+    }
+
+    function ownDeviceNotRevoked(familyId, childId) {
+      return childDeviceOf(familyId, childId)
+        && hasClaim('deviceId')
+        && exists(ownDevicePath(familyId, childId, request.auth.token.deviceId))
+        && get(ownDevicePath(familyId, childId, request.auth.token.deviceId)).data.revoked != true;
+    }
+
+    /**
+     * Child may only touch heartbeat / inventory / FCM fields on its own device doc.
+     * Never allow a child client to clear `revoked` or invent new keys.
+     */
+    function childDeviceUpdateKeysOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly([
+          'lastSeenAt',
+          'launcherDefault',
+          'model',
+          'batteryPercent',
+          'osVersion',
+          'appVersion',
+          'fcmToken',
+          'fcmTokenUpdatedAt',
+          'installedApps',
+          'installedAppsUpdatedAt',
+        ]);
+    }
+
+    match /users/{uid} {
+      // Parents own their profile doc. Child tokens never share a parent uid.
+      allow get: if isSuperAdmin() || (signedIn() && request.auth.uid == uid && !isChildDevice());
+      allow list: if isSuperAdmin();
+      allow create, update: if isSuperAdmin() || (signedIn()
+        && request.auth.uid == uid
+        && !isChildDevice());
+      allow delete: if isSuperAdmin() || (signedIn() && request.auth.uid == uid && !isChildDevice());
+    }
+
+    match /families/{familyId} {
+      // Child devices may read the family root (parentPinHash) so PIN resets sync offline-capable.
+      allow read: if isSuperAdmin()
+        || isFamilyMember(familyId)
+        || (isChildDevice()
+            && hasClaim('familyId')
+            && request.auth.token.familyId == familyId);
+      allow create: if isSuperAdmin() || (signedIn()
+        && !isChildDevice()
+        && request.resource.data.ownerUid == request.auth.uid);
+      allow update, delete: if isSuperAdmin() || isFamilyOwner(familyId);
+
+      match /members/{uid} {
+        allow read: if isSuperAdmin() || isFamilyMember(familyId);
+        // Owner-only. Self-join of arbitrary familyIds is forbidden (privilege escalation).
+        // Family create + first member write happen in one batch; getAfter sees the new family.
+        allow create: if isSuperAdmin() || (request.auth.uid == uid
+          && willBeFamilyOwner(familyId));
+        allow update, delete: if isSuperAdmin() || isFamilyOwner(familyId);
+      }
+
+      match /parentDevices/{installationId} {
+        allow read: if isSuperAdmin() || isFamilyMember(familyId);
+        allow create, update: if isSuperAdmin() || (
+          isFamilyMember(familyId) &&
+          request.resource.data.uid == request.auth.uid
+        );
+        allow delete: if isSuperAdmin() || (
+          isFamilyMember(familyId) &&
+          resource.data.uid == request.auth.uid
+        );
+      }
+
+      match /children/{childId} {
+        allow read: if isSuperAdmin() || isFamilyMember(familyId) || childDeviceOf(familyId, childId);
+        // During family bootstrap the member doc is created in the same batch; allow the
+        // owner to create children via getAfter, not only exists(member).
+        allow create: if isSuperAdmin() || isFamilyMember(familyId) || willBeFamilyOwner(familyId);
+        allow update, delete: if isSuperAdmin() || isFamilyMember(familyId);
+
+        match /policy/{docId} {
+          allow read: if isSuperAdmin() || isFamilyMember(familyId) || childDeviceOf(familyId, childId);
+          allow write: if isSuperAdmin() || isFamilyMember(familyId) || willBeFamilyOwner(familyId);
+        }
+
+        match /appRules/{appId} {
+          allow read: if isSuperAdmin() || isFamilyMember(familyId) || childDeviceOf(familyId, childId);
+          allow write: if isSuperAdmin() || isFamilyMember(familyId);
+        }
+
+        match /devices/{deviceId} {
+          allow read: if isSuperAdmin() || isFamilyMember(familyId) || childDeviceOf(familyId, childId);
+          allow create, delete: if isSuperAdmin() || isFamilyMember(familyId);
+          allow update: if isSuperAdmin()
+            || isFamilyMember(familyId)
+            || (
+              childDeviceOf(familyId, childId)
+              && hasClaim('deviceId')
+              && request.auth.token.deviceId == deviceId
+              && resource.data.revoked != true
+              && request.resource.data.revoked == resource.data.revoked
+              && childDeviceUpdateKeysOnly()
+            );
+        }
+
+        match /usageDays/{day} {
+          allow read: if isSuperAdmin() || isFamilyMember(familyId) || childDeviceOf(familyId, childId);
+          allow create, update: if ownDeviceNotRevoked(familyId, childId);
+          allow delete: if isSuperAdmin();
+        }
+
+        match /quizAttempts/{attemptId} {
+          allow read: if isSuperAdmin() || isFamilyMember(familyId) || childDeviceOf(familyId, childId);
+          allow create: if ownDeviceNotRevoked(familyId, childId);
+          allow update, delete: if isSuperAdmin();
+        }
+
+        match /skillState/{docId} {
+          allow read: if isSuperAdmin() || isFamilyMember(familyId) || childDeviceOf(familyId, childId);
+          allow write: if isSuperAdmin() || ownDeviceNotRevoked(familyId, childId);
+        }
+
+        match /stickerUnlocks/{unlockId} {
+          allow read: if isSuperAdmin() || isFamilyMember(familyId) || childDeviceOf(familyId, childId);
+          allow create: if ownDeviceNotRevoked(familyId, childId);
+          allow update, delete: if isSuperAdmin();
+        }
+
+        match /explorerProgress/{docId} {
+          allow read: if isSuperAdmin() || isFamilyMember(familyId) || childDeviceOf(familyId, childId);
+          allow write: if isSuperAdmin() || ownDeviceNotRevoked(familyId, childId);
+        }
+
+        match /quizPacks/{packId} {
+          allow read: if isSuperAdmin() || isFamilyMember(familyId) || childDeviceOf(familyId, childId);
+          allow write: if isSuperAdmin();
+        }
+      }
+    }
+
+    match /fcmTokens/{tokenId} {
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin() || (signedIn() && (
+        request.resource.data.uid == request.auth.uid ||
+        (isChildDevice() && request.resource.data.role == 'child') ||
+        (!isChildDevice() && request.resource.data.role == 'parent')
+      ));
+    }
+
+    match /adminCampaigns/{docId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /notification_queue/{docId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /adminStats/{docId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /adminAuditLogs/{docId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /adminUsers/{docId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    // Pairing codes / rate-limit buckets are minted and consumed only by Cloud Functions.
+    match /pairingCodes/{code} {
+      allow read, write: if false;
+    }
+
+    match /consumeRate/{ip} {
+      allow read, write: if false;
+    }
+
+    match /deleteRate/{uid} {
+      allow read, write: if false;
+    }
+
+    match /pairingMintRate/{uid} {
+      allow read, write: if false;
+    }
+
+    // Email OTP verification codes and rate-limit buckets are admin/Cloud Functions only.
+    match /emailOtpCodes/{email} {
+      allow read, write: if false;
+    }
+
+    match /emailOtpSendRate/{id} {
+      allow read, write: if false;
+    }
+
+    match /emailOtpIpRate/{id} {
+      allow read, write: if false;
+    }
+  }
+}
+

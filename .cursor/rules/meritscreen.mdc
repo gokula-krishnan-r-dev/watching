@@ -1,0 +1,38 @@
+---
+description: MeritScreen production standards for Android, Firebase, and parental controls
+alwaysApply: true
+---
+
+# MeritScreen engineering rules
+
+Read existing architecture (`ARCHITECTURE.md`, `docs/01`–`docs/07`) before changing code. Do not rewrite working modules. Prefer extending feature modules over enlarging `:app`.
+
+## Product invariants
+
+- Fail lock is **always device-wide** (all non-emergency apps). Never add a per-app-only fail.
+- Child Home and quiz UI read **Room only**. No Firestore, FCM, or AI calls on that path.
+- `AppConfig` in `:core:common` is the only place for tunables such as `MAX_CHILDREN_PER_PARENT`. Never scatter those numbers.
+- Do not collect GPS, contacts, SMS, photos, or a child email.
+
+## Android / UI
+
+- Kotlin, Jetpack Compose, Material 3, Coroutines, Flow, Hilt.
+- Use `:core:ui` tokens. No hard-coded colors.
+- Every screen: loading, error (user-facing `AppError`), empty + retry where it applies.
+- Avoid extra third-party libraries. No AccessibilityService or hidden APIs to trap users.
+- If Android cannot enforce a control, document the limitation instead of faking it.
+
+## Data / Firebase
+
+- Parents access only their family; child custom tokens are scoped to `childId`.
+- Enforce authz in security rules, not only in UI.
+- Prefer cached Room policy offline; fail closed on integrity errors.
+- Review read/write cost before adding listeners. No Home-path listeners.
+
+## Quality
+
+- Separate UI from use cases and repositories.
+- Test session/fail-lock and authz first. Use `:core:testing` fakes.
+- Never log PIN, tokens, emails, or pairing codes (`LogSanitizer`).
+- Update docs when behavior or schema changes.
+- A feature is not done until it works end-to-end (UI, logic, backend, states, tests).

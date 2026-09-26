@@ -1,0 +1,16 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Optional quiz media for the child launcher (ages 3–6). Parents do not need it;
+    // Admin SDK / Functions write outside these rules.
+    match /quizMedia/{ageBand}/{allPaths=**} {
+      allow read: if request.auth != null
+        && request.auth.token.role == 'child_device';
+      allow write: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

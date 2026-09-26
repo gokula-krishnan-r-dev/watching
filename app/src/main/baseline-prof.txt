@@ -1,0 +1,23 @@
+# MeritScreen Phase 10 starter baseline profile.
+# Macrobenchmark-driven generation (real cold-start + Home + quiz journeys) lands in Phase 11.
+# Class rules (no HSP flags) AOT every method; method rules use HSP for hot paths.
+
+# Application / activity startup
+Lcom/meritscreen/app/MeritScreenApplication;
+Lcom/meritscreen/app/MainActivity;
+Lcom/meritscreen/app/AppViewModel;
+Lcom/meritscreen/app/navigation/MeritScreenAppKt;
+Lcom/meritscreen/app/navigation/RoleGateKt;
+
+# Child Home hot path (Room-only; never Firestore)
+Lcom/meritscreen/feature/child/ui/ChildHomeViewModel;
+Lcom/meritscreen/feature/child/ui/ChildHomeScreenKt;
+Lcom/meritscreen/feature/child/domain/ChildSessionController;
+Lcom/meritscreen/feature/child/domain/SessionEngine;
+Lcom/meritscreen/feature/child/domain/SessionPersistPolicy;
+Lcom/meritscreen/feature/child/data/ChildPolicyRepository;
+Lcom/meritscreen/feature/applications/InstalledAppsRepository;
+Lcom/meritscreen/feature/applications/AppIconLoader;
+
+# Compose / lifecycle commonly hit on first frame
+Landroidx/activity/ComponentActivity;

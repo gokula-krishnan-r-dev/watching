@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/network_security_config">
+        <activity
+            android:name="com.meritscreen.app.debug.ParentUiPreviewActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
+            android:theme="@style/Theme.MeritScreen" />
+
+        <!-- Pin BuildConfig App Check debug token into Firebase's debug provider. -->
+        <meta-data
+            android:name="com.google.firebase.components:com.meritscreen.app.debug.PinnedAppCheckDebugSecretRegistrar"
+            android:value="com.google.firebase.components.ComponentRegistrar" />
+    </application>
+</manifest>

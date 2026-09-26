@@ -1,0 +1,797 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 5,
+    "identityHash": "f552170812540ebb2ba9d45382a6e577",
+    "entities": [
+      {
+        "tableName": "sync_meta",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `updatedAtEpochMs` INTEGER NOT NULL, `payloadHash` TEXT, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMs",
+            "columnName": "updatedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadHash",
+            "columnName": "payloadHash",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      },
+      {
+        "tableName": "child_policy",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`childId` TEXT NOT NULL, `familyId` TEXT NOT NULL, `quizMode` TEXT NOT NULL, `allowRetryDuringCooldown` INTEGER NOT NULL, `dailyCeilingMinutes` INTEGER, `questionsPerQuiz` INTEGER NOT NULL, `passScorePercent` INTEGER NOT NULL, `rewardsEnabled` INTEGER NOT NULL, `weekendBonusEnabled` INTEGER NOT NULL, `extraMinutesOnPass` INTEGER NOT NULL, `aiQuizzesEnabled` INTEGER NOT NULL, `adaptiveDifficultyEnabled` INTEGER NOT NULL, `showExplanations` INTEGER NOT NULL, `defaultBlockMinutes` INTEGER NOT NULL, `defaultCooldownMinutes` INTEGER NOT NULL, `emergencyAppsCsv` TEXT NOT NULL, `updatedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`childId`))",
+        "fields": [
+          {
+            "fieldPath": "childId",
+            "columnName": "childId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "familyId",
+            "columnName": "familyId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quizMode",
+            "columnName": "quizMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "allowRetryDuringCooldown",
+            "columnName": "allowRetryDuringCooldown",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dailyCeilingMinutes",
+            "columnName": "dailyCeilingMinutes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "questionsPerQuiz",
+            "columnName": "questionsPerQuiz",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "passScorePercent",
+            "columnName": "passScorePercent",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rewardsEnabled",
+            "columnName": "rewardsEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weekendBonusEnabled",
+            "columnName": "weekendBonusEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "extraMinutesOnPass",
+            "columnName": "extraMinutesOnPass",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "aiQuizzesEnabled",
+            "columnName": "aiQuizzesEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "adaptiveDifficultyEnabled",
+            "columnName": "adaptiveDifficultyEnabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "showExplanations",
+            "columnName": "showExplanations",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultBlockMinutes",
+            "columnName": "defaultBlockMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultCooldownMinutes",
+            "columnName": "defaultCooldownMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emergencyAppsCsv",
+            "columnName": "emergencyAppsCsv",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMs",
+            "columnName": "updatedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "childId"
+          ]
+        }
+      },
+      {
+        "tableName": "child_app_rule",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`appId` TEXT NOT NULL, `childId` TEXT NOT NULL, `packageOrBundleId` TEXT NOT NULL, `displayName` TEXT NOT NULL, `allowed` INTEGER NOT NULL, `blockMinutes` INTEGER NOT NULL, `grantOnPassMinutes` INTEGER NOT NULL, `cooldownMinutes` INTEGER NOT NULL, `isEmergency` INTEGER NOT NULL, PRIMARY KEY(`appId`))",
+        "fields": [
+          {
+            "fieldPath": "appId",
+            "columnName": "appId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "childId",
+            "columnName": "childId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "packageOrBundleId",
+            "columnName": "packageOrBundleId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "allowed",
+            "columnName": "allowed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blockMinutes",
+            "columnName": "blockMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "grantOnPassMinutes",
+            "columnName": "grantOnPassMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cooldownMinutes",
+            "columnName": "cooldownMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isEmergency",
+            "columnName": "isEmergency",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "appId"
+          ]
+        }
+      },
+      {
+        "tableName": "child_profile_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`childId` TEXT NOT NULL, `familyId` TEXT NOT NULL, `displayName` TEXT NOT NULL, `ageBand` TEXT NOT NULL, `avatarId` TEXT NOT NULL, `language` TEXT NOT NULL, PRIMARY KEY(`childId`))",
+        "fields": [
+          {
+            "fieldPath": "childId",
+            "columnName": "childId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "familyId",
+            "columnName": "familyId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ageBand",
+            "columnName": "ageBand",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "avatarId",
+            "columnName": "avatarId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "language",
+            "columnName": "language",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "childId"
+          ]
+        }
+      },
+      {
+        "tableName": "session_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `phase` TEXT NOT NULL, `activePackage` TEXT, `activeAppId` TEXT, `blockStartedElapsedMs` INTEGER, `blockDurationMinutes` INTEGER NOT NULL, `minutesAccruedInBlock` REAL NOT NULL, `deviceShieldedUntilElapsedMs` INTEGER, `cooldownMinutes` INTEGER NOT NULL, `dayKey` TEXT NOT NULL, `minutesUsedToday` INTEGER NOT NULL, `lastTickElapsedMs` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "phase",
+            "columnName": "phase",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activePackage",
+            "columnName": "activePackage",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "activeAppId",
+            "columnName": "activeAppId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "blockStartedElapsedMs",
+            "columnName": "blockStartedElapsedMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "blockDurationMinutes",
+            "columnName": "blockDurationMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "minutesAccruedInBlock",
+            "columnName": "minutesAccruedInBlock",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceShieldedUntilElapsedMs",
+            "columnName": "deviceShieldedUntilElapsedMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cooldownMinutes",
+            "columnName": "cooldownMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dayKey",
+            "columnName": "dayKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "minutesUsedToday",
+            "columnName": "minutesUsedToday",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastTickElapsedMs",
+            "columnName": "lastTickElapsedMs",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "quiz_item",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `ageBand` TEXT NOT NULL, `topic` TEXT NOT NULL, `conceptId` TEXT NOT NULL, `conceptTitle` TEXT NOT NULL, `difficulty` INTEGER NOT NULL, `prompt` TEXT NOT NULL, `choicesJson` TEXT NOT NULL, `whyCorrect` TEXT NOT NULL, `whyWrongByChoiceJson` TEXT NOT NULL, `conceptExplainer` TEXT NOT NULL, `language` TEXT NOT NULL, `source` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ageBand",
+            "columnName": "ageBand",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "topic",
+            "columnName": "topic",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conceptId",
+            "columnName": "conceptId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conceptTitle",
+            "columnName": "conceptTitle",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "difficulty",
+            "columnName": "difficulty",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "prompt",
+            "columnName": "prompt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "choicesJson",
+            "columnName": "choicesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "whyCorrect",
+            "columnName": "whyCorrect",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "whyWrongByChoiceJson",
+            "columnName": "whyWrongByChoiceJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conceptExplainer",
+            "columnName": "conceptExplainer",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "language",
+            "columnName": "language",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "skill_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `childId` TEXT NOT NULL, `topic` TEXT NOT NULL, `conceptId` TEXT, `level` INTEGER NOT NULL, `streakCorrect` INTEGER NOT NULL, `weak` INTEGER NOT NULL, `weakConceptsCsv` TEXT NOT NULL, `weakConceptTitlesJson` TEXT NOT NULL, `dirty` INTEGER NOT NULL, `syncedAtEpochMs` INTEGER, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "childId",
+            "columnName": "childId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "topic",
+            "columnName": "topic",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conceptId",
+            "columnName": "conceptId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "level",
+            "columnName": "level",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streakCorrect",
+            "columnName": "streakCorrect",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weak",
+            "columnName": "weak",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weakConceptsCsv",
+            "columnName": "weakConceptsCsv",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weakConceptTitlesJson",
+            "columnName": "weakConceptTitlesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dirty",
+            "columnName": "dirty",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncedAtEpochMs",
+            "columnName": "syncedAtEpochMs",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      },
+      {
+        "tableName": "recent_question",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`rowId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `childId` TEXT NOT NULL, `questionId` TEXT NOT NULL, `answeredAtEpochMs` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "rowId",
+            "columnName": "rowId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "childId",
+            "columnName": "childId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "questionId",
+            "columnName": "questionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "answeredAtEpochMs",
+            "columnName": "answeredAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "rowId"
+          ]
+        }
+      },
+      {
+        "tableName": "installed_app",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`packageName` TEXT NOT NULL, `label` TEXT NOT NULL, `isSystemApp` INTEGER NOT NULL, `versionCode` INTEGER NOT NULL, `updatedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`packageName`))",
+        "fields": [
+          {
+            "fieldPath": "packageName",
+            "columnName": "packageName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isSystemApp",
+            "columnName": "isSystemApp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "versionCode",
+            "columnName": "versionCode",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMs",
+            "columnName": "updatedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "packageName"
+          ]
+        }
+      },
+      {
+        "tableName": "device_runtime_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `lastHeartbeatAtEpochMs` INTEGER, `lastKnownRevoked` INTEGER NOT NULL, `lastKnownLauncherDefault` INTEGER, `lastUploadedAppsHash` INTEGER, `configVersion` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastHeartbeatAtEpochMs",
+            "columnName": "lastHeartbeatAtEpochMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastKnownRevoked",
+            "columnName": "lastKnownRevoked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastKnownLauncherDefault",
+            "columnName": "lastKnownLauncherDefault",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastUploadedAppsHash",
+            "columnName": "lastUploadedAppsHash",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "configVersion",
+            "columnName": "configVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "usage_day",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`childId` TEXT NOT NULL, `day` TEXT NOT NULL, `minutesUsed` INTEGER NOT NULL, `minutesByAppJson` TEXT NOT NULL, `updatedAtEpochMs` INTEGER NOT NULL, `dirty` INTEGER NOT NULL, `syncedAtEpochMs` INTEGER, PRIMARY KEY(`childId`, `day`))",
+        "fields": [
+          {
+            "fieldPath": "childId",
+            "columnName": "childId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "day",
+            "columnName": "day",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "minutesUsed",
+            "columnName": "minutesUsed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "minutesByAppJson",
+            "columnName": "minutesByAppJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMs",
+            "columnName": "updatedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dirty",
+            "columnName": "dirty",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncedAtEpochMs",
+            "columnName": "syncedAtEpochMs",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "childId",
+            "day"
+          ]
+        }
+      },
+      {
+        "tableName": "quiz_attempt",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`attemptId` TEXT NOT NULL, `childId` TEXT NOT NULL, `createdAtEpochMs` INTEGER NOT NULL, `topicsCsv` TEXT NOT NULL, `score` INTEGER NOT NULL, `total` INTEGER NOT NULL, `passed` INTEGER NOT NULL, `extraMinutesGranted` INTEGER NOT NULL, `dirty` INTEGER NOT NULL, `syncedAtEpochMs` INTEGER, PRIMARY KEY(`attemptId`))",
+        "fields": [
+          {
+            "fieldPath": "attemptId",
+            "columnName": "attemptId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "childId",
+            "columnName": "childId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMs",
+            "columnName": "createdAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "topicsCsv",
+            "columnName": "topicsCsv",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "score",
+            "columnName": "score",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "total",
+            "columnName": "total",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "passed",
+            "columnName": "passed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "extraMinutesGranted",
+            "columnName": "extraMinutesGranted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dirty",
+            "columnName": "dirty",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncedAtEpochMs",
+            "columnName": "syncedAtEpochMs",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "attemptId"
+          ]
+        }
+      },
+      {
+        "tableName": "policy_sync_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`childId` TEXT NOT NULL, `lastAttemptAtEpochMs` INTEGER NOT NULL, `lastSuccessAtEpochMs` INTEGER, `consecutiveFailures` INTEGER NOT NULL, PRIMARY KEY(`childId`))",
+        "fields": [
+          {
+            "fieldPath": "childId",
+            "columnName": "childId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastAttemptAtEpochMs",
+            "columnName": "lastAttemptAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSuccessAtEpochMs",
+            "columnName": "lastSuccessAtEpochMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "consecutiveFailures",
+            "columnName": "consecutiveFailures",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "childId"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f552170812540ebb2ba9d45382a6e577')"
+    ]
+  }
+}

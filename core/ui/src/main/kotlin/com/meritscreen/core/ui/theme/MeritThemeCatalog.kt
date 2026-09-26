@@ -1,0 +1,1303 @@
+package com.meritscreen.core.ui.theme
+
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+/**
+ * Catalog providing color tokens, M3 ColorSchemes, and layout styles
+ * for all 8 application themes in both light and dark variants.
+ */
+object MeritThemeCatalog {
+
+    // =========================================================================
+    // 1. MERIT CLASSIC (Default Calm Horizon Palette)
+    // =========================================================================
+    private val ClassicLight = MeritColorTokens(
+        surface = Color(0xFFFCF9F4),
+        surfaceDim = Color(0xFFDCDAD5),
+        surfaceBright = Color(0xFFFCF9F4),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFF6F3EE),
+        surfaceContainer = Color(0xFFF0EDE8),
+        surfaceContainerHigh = Color(0xFFEBE8E3),
+        surfaceContainerHighest = Color(0xFFE5E2DD),
+        onSurface = Color(0xFF1C1C19),
+        onSurfaceVariant = Color(0xFF3F4947),
+        inverseSurface = Color(0xFF31302D),
+        inverseOnSurface = Color(0xFFF3F0EB),
+        outline = Color(0xFF6F7978),
+        outlineVariant = Color(0xFFBEC9C7),
+        surfaceTint = Color(0xFF0C6A65),
+
+        primary = Color(0xFF00514D),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFF0F6B66),
+        onPrimaryContainer = Color(0xFF9BE9E2),
+        inversePrimary = Color(0xFF87D4CE),
+        primaryFixed = Color(0xFFA2F1EA),
+        primaryFixedDim = Color(0xFF87D4CE),
+        onPrimaryFixed = Color(0xFF00201E),
+        onPrimaryFixedVariant = Color(0xFF00504C),
+
+        secondary = Color(0xFF685D4B),
+        onSecondary = Color(0xFFFFFFFF),
+        secondaryContainer = Color(0xFFEEDDC7),
+        onSecondaryContainer = Color(0xFF6D614F),
+        secondaryFixed = Color(0xFFF1E0CA),
+        secondaryFixedDim = Color(0xFFD4C4AF),
+        onSecondaryFixed = Color(0xFF221A0D),
+        onSecondaryFixedVariant = Color(0xFF504535),
+
+        tertiary = Color(0xFF13522F),
+        onTertiary = Color(0xFFFFFFFF),
+        tertiaryContainer = Color(0xFF2F6B45),
+        onTertiaryContainer = Color(0xFFA9E9B9),
+        tertiaryFixed = Color(0xFFB1F1C1),
+        tertiaryFixedDim = Color(0xFF96D5A6),
+        onTertiaryFixed = Color(0xFF00210E),
+        onTertiaryFixedVariant = Color(0xFF11512E),
+
+        error = Color(0xFFBA1A1A),
+        onError = Color(0xFFFFFFFF),
+        errorContainer = Color(0xFFFFDAD6),
+        onErrorContainer = Color(0xFF93000A),
+
+        background = Color(0xFFFCF9F4),
+        onBackground = Color(0xFF1C1C19),
+        surfaceVariant = Color(0xFFE5E2DD),
+    )
+
+    private val ClassicDark = MeritColorTokens(
+        surface = Color(0xFF1A2124),
+        surfaceDim = Color(0xFF121618),
+        surfaceBright = Color(0xFF242E32),
+        surfaceContainerLowest = Color(0xFF101416),
+        surfaceContainerLow = Color(0xFF151B1D),
+        surfaceContainer = Color(0xFF1F272B),
+        surfaceContainerHigh = Color(0xFF273136),
+        surfaceContainerHighest = Color(0xFF303C42),
+        onSurface = Color(0xFFE4EEEC),
+        onSurfaceVariant = Color(0xFFB5C2BF),
+        inverseSurface = Color(0xFFE4EEEC),
+        inverseOnSurface = Color(0xFF101416),
+        outline = Color(0xFF3A4746),
+        outlineVariant = Color(0xFF2E3838),
+        surfaceTint = Color(0xFF7ED4CC),
+
+        primary = Color(0xFF7ED4CC),
+        onPrimary = Color(0xFF003734),
+        primaryContainer = Color(0xFF0B5C58),
+        onPrimaryContainer = Color(0xFFE4EEEC),
+        inversePrimary = Color(0xFF00514D),
+        primaryFixed = Color(0xFFA2F1EA),
+        primaryFixedDim = Color(0xFF7ED4CC),
+        onPrimaryFixed = Color(0xFF00201E),
+        onPrimaryFixedVariant = Color(0xFF00504C),
+
+        secondary = Color(0xFFD9C7AE),
+        onSecondary = Color(0xFF2B241B),
+        secondaryContainer = Color(0xFF3C3429),
+        onSecondaryContainer = Color(0xFFF0E2CE),
+        secondaryFixed = Color(0xFFF1E0CA),
+        secondaryFixedDim = Color(0xFFD4C4AF),
+        onSecondaryFixed = Color(0xFF221A0D),
+        onSecondaryFixedVariant = Color(0xFF504535),
+
+        tertiary = Color(0xFF9AD4AE),
+        onTertiary = Color(0xFF06371C),
+        tertiaryContainer = Color(0xFF1E5233),
+        onTertiaryContainer = Color(0xFFBFF8D0),
+        tertiaryFixed = Color(0xFFB1F1C1),
+        tertiaryFixedDim = Color(0xFF96D5A6),
+        onTertiaryFixed = Color(0xFF00210E),
+        onTertiaryFixedVariant = Color(0xFF11512E),
+
+        error = Color(0xFFFFB4AB),
+        onError = Color(0xFF3B0907),
+        errorContainer = Color(0xFF8C2A22),
+        onErrorContainer = Color(0xFFFFB4AB),
+
+        background = Color(0xFF101416),
+        onBackground = Color(0xFFE4EEEC),
+        surfaceVariant = Color(0xFF2A3234),
+    )
+
+    // =========================================================================
+    // 2. GOOGLE SLATE (Clean White & Slate Navy Workspace)
+    // =========================================================================
+    private val GoogleSlateLight = MeritColorTokens(
+        surface = Color(0xFFFFFFFF),
+        surfaceDim = Color(0xFFE8EAED),
+        surfaceBright = Color(0xFFFFFFFF),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFF8F9FA),
+        surfaceContainer = Color(0xFFF1F3F4),
+        surfaceContainerHigh = Color(0xFFE8EAED),
+        surfaceContainerHighest = Color(0xFFDADCE0),
+        onSurface = Color(0xFF202124),
+        onSurfaceVariant = Color(0xFF5F6368),
+        inverseSurface = Color(0xFF303134),
+        inverseOnSurface = Color(0xFFF1F3F4),
+        outline = Color(0xFFBDC1C6),
+        outlineVariant = Color(0xFFE0E0E0),
+        surfaceTint = Color(0xFF1A73E8),
+
+        primary = Color(0xFF1A73E8),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFFE8F0FE),
+        onPrimaryContainer = Color(0xFF174EA6),
+        inversePrimary = Color(0xFF8AB4F8),
+        primaryFixed = Color(0xFFD2E3FC),
+        primaryFixedDim = Color(0xFFAECBFA),
+        onPrimaryFixed = Color(0xFF041E49),
+        onPrimaryFixedVariant = Color(0xFF174EA6),
+
+        secondary = Color(0xFF1E8E3E),
+        onSecondary = Color(0xFFFFFFFF),
+        secondaryContainer = Color(0xFFE6F4EA),
+        onSecondaryContainer = Color(0xFF137333),
+        secondaryFixed = Color(0xFFCEEAD6),
+        secondaryFixedDim = Color(0xFFA8DAB5),
+        onSecondaryFixed = Color(0xFF0D652D),
+        onSecondaryFixedVariant = Color(0xFF137333),
+
+        tertiary = Color(0xFFF9AB00),
+        onTertiary = Color(0xFF202124),
+        tertiaryContainer = Color(0xFFFEF7E0),
+        onTertiaryContainer = Color(0xFFB06000),
+        tertiaryFixed = Color(0xFFFEEFC3),
+        tertiaryFixedDim = Color(0xFFFDD663),
+        onTertiaryFixed = Color(0xFF3C2000),
+        onTertiaryFixedVariant = Color(0xFFB06000),
+
+        error = Color(0xFFD93025),
+        onError = Color(0xFFFFFFFF),
+        errorContainer = Color(0xFFFCE8E6),
+        onErrorContainer = Color(0xFFC5221F),
+
+        background = Color(0xFFFFFFFF),
+        onBackground = Color(0xFF202124),
+        surfaceVariant = Color(0xFFF1F3F4),
+    )
+
+    private val GoogleSlateDark = MeritColorTokens(
+        surface = Color(0xFF2D2E30),
+        surfaceDim = Color(0xFF1A1B1E),
+        surfaceBright = Color(0xFF35363A),
+        surfaceContainerLowest = Color(0xFF1E1F21),
+        surfaceContainerLow = Color(0xFF252629),
+        surfaceContainer = Color(0xFF303134),
+        surfaceContainerHigh = Color(0xFF3C4043),
+        surfaceContainerHighest = Color(0xFF5F6368),
+        onSurface = Color(0xFFE8EAED),
+        onSurfaceVariant = Color(0xFF9AA0A6),
+        inverseSurface = Color(0xFFE8EAED),
+        inverseOnSurface = Color(0xFF202124),
+        outline = Color(0xFF5F6368),
+        outlineVariant = Color(0xFF3C4043),
+        surfaceTint = Color(0xFF8AB4F8),
+
+        primary = Color(0xFF8AB4F8),
+        onPrimary = Color(0xFF041E49),
+        primaryContainer = Color(0xFF174EA6),
+        onPrimaryContainer = Color(0xFFD2E3FC),
+        inversePrimary = Color(0xFF1A73E8),
+        primaryFixed = Color(0xFFD2E3FC),
+        primaryFixedDim = Color(0xFFAECBFA),
+        onPrimaryFixed = Color(0xFF041E49),
+        onPrimaryFixedVariant = Color(0xFF174EA6),
+
+        secondary = Color(0xFF81C995),
+        onSecondary = Color(0xFF0D652D),
+        secondaryContainer = Color(0xFF137333),
+        onSecondaryContainer = Color(0xFFCEEAD6),
+        secondaryFixed = Color(0xFFCEEAD6),
+        secondaryFixedDim = Color(0xFFA8DAB5),
+        onSecondaryFixed = Color(0xFF0D652D),
+        onSecondaryFixedVariant = Color(0xFF137333),
+
+        tertiary = Color(0xFFFDD663),
+        onTertiary = Color(0xFF3C2000),
+        tertiaryContainer = Color(0xFFB06000),
+        onTertiaryContainer = Color(0xFFFEF7E0),
+        tertiaryFixed = Color(0xFFFEEFC3),
+        tertiaryFixedDim = Color(0xFFFDD663),
+        onTertiaryFixed = Color(0xFF3C2000),
+        onTertiaryFixedVariant = Color(0xFFB06000),
+
+        error = Color(0xFFF28B82),
+        onError = Color(0xFF601410),
+        errorContainer = Color(0xFFC5221F),
+        onErrorContainer = Color(0xFFFCE8E6),
+
+        background = Color(0xFF202124),
+        onBackground = Color(0xFFE8EAED),
+        surfaceVariant = Color(0xFF303134),
+    )
+
+    // =========================================================================
+    // 3. MONOCHROME NOIR (Minimalist Crisp · Linear / Notion Inspired)
+    // =========================================================================
+    private val MonochromeLight = MeritColorTokens(
+        surface = Color(0xFFFFFFFF),
+        surfaceDim = Color(0xFFE4E4E7),
+        surfaceBright = Color(0xFFFFFFFF),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFFAFAFA),
+        surfaceContainer = Color(0xFFF4F4F5),
+        surfaceContainerHigh = Color(0xFFE4E4E7),
+        surfaceContainerHighest = Color(0xFFD4D4D8),
+        onSurface = Color(0xFF09090B),
+        onSurfaceVariant = Color(0xFF71717A),
+        inverseSurface = Color(0xFF18181B),
+        inverseOnSurface = Color(0xFFFAFAFA),
+        outline = Color(0xFFA1A1AA),
+        outlineVariant = Color(0xFFE4E4E7),
+        surfaceTint = Color(0xFF18181B),
+
+        primary = Color(0xFF18181B),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFF27272A),
+        onPrimaryContainer = Color(0xFFFAFAFA),
+        inversePrimary = Color(0xFFFAFAFA),
+        primaryFixed = Color(0xFFE4E4E7),
+        primaryFixedDim = Color(0xFFD4D4D8),
+        onPrimaryFixed = Color(0xFF09090B),
+        onPrimaryFixedVariant = Color(0xFF27272A),
+
+        secondary = Color(0xFF52525B),
+        onSecondary = Color(0xFFFFFFFF),
+        secondaryContainer = Color(0xFFF4F4F5),
+        onSecondaryContainer = Color(0xFF18181B),
+        secondaryFixed = Color(0xFFE4E4E7),
+        secondaryFixedDim = Color(0xFFD4D4D8),
+        onSecondaryFixed = Color(0xFF09090B),
+        onSecondaryFixedVariant = Color(0xFF3F3F46),
+
+        tertiary = Color(0xFF3F3F46),
+        onTertiary = Color(0xFFFFFFFF),
+        tertiaryContainer = Color(0xFFE4E4E7),
+        onTertiaryContainer = Color(0xFF09090B),
+        tertiaryFixed = Color(0xFFE4E4E7),
+        tertiaryFixedDim = Color(0xFFD4D4D8),
+        onTertiaryFixed = Color(0xFF09090B),
+        onTertiaryFixedVariant = Color(0xFF27272A),
+
+        error = Color(0xFFDC2626),
+        onError = Color(0xFFFFFFFF),
+        errorContainer = Color(0xFFFEE2E2),
+        onErrorContainer = Color(0xFF991B1B),
+
+        background = Color(0xFFFFFFFF),
+        onBackground = Color(0xFF09090B),
+        surfaceVariant = Color(0xFFF4F4F5),
+    )
+
+    private val MonochromeDark = MeritColorTokens(
+        surface = Color(0xFF09090B),
+        surfaceDim = Color(0xFF050505),
+        surfaceBright = Color(0xFF18181B),
+        surfaceContainerLowest = Color(0xFF000000),
+        surfaceContainerLow = Color(0xFF09090B),
+        surfaceContainer = Color(0xFF18181B),
+        surfaceContainerHigh = Color(0xFF27272A),
+        surfaceContainerHighest = Color(0xFF3F3F46),
+        onSurface = Color(0xFFFAFAFA),
+        onSurfaceVariant = Color(0xFFA1A1AA),
+        inverseSurface = Color(0xFFFAFAFA),
+        inverseOnSurface = Color(0xFF09090B),
+        outline = Color(0xFF3F3F46),
+        outlineVariant = Color(0xFF27272A),
+        surfaceTint = Color(0xFFFFFFFF),
+
+        primary = Color(0xFFFFFFFF),
+        onPrimary = Color(0xFF000000),
+        primaryContainer = Color(0xFF27272A),
+        onPrimaryContainer = Color(0xFFFFFFFF),
+        inversePrimary = Color(0xFF18181B),
+        primaryFixed = Color(0xFF3F3F46),
+        primaryFixedDim = Color(0xFF27272A),
+        onPrimaryFixed = Color(0xFFFFFFFF),
+        onPrimaryFixedVariant = Color(0xFFE4E4E7),
+
+        secondary = Color(0xFFA1A1AA),
+        onSecondary = Color(0xFF09090B),
+        secondaryContainer = Color(0xFF27272A),
+        onSecondaryContainer = Color(0xFFFAFAFA),
+        secondaryFixed = Color(0xFF3F3F46),
+        secondaryFixedDim = Color(0xFF27272A),
+        onSecondaryFixed = Color(0xFFFFFFFF),
+        onSecondaryFixedVariant = Color(0xFFE4E4E7),
+
+        tertiary = Color(0xFFD4D4D8),
+        onTertiary = Color(0xFF09090B),
+        tertiaryContainer = Color(0xFF27272A),
+        onTertiaryContainer = Color(0xFFFAFAFA),
+        tertiaryFixed = Color(0xFF3F3F46),
+        tertiaryFixedDim = Color(0xFF27272A),
+        onTertiaryFixed = Color(0xFFFFFFFF),
+        onTertiaryFixedVariant = Color(0xFFE4E4E7),
+
+        error = Color(0xFFEF4444),
+        onError = Color(0xFF450A0A),
+        errorContainer = Color(0xFF7F1D1D),
+        onErrorContainer = Color(0xFFFCA5A5),
+
+        background = Color(0xFF000000),
+        onBackground = Color(0xFFFAFAFA),
+        surfaceVariant = Color(0xFF18181B),
+    )
+
+    // =========================================================================
+    // 4. ELECTRIC INDIGO (Stripe / Apple Tech Palette)
+    // =========================================================================
+    private val ElectricIndigoLight = MeritColorTokens(
+        surface = Color(0xFFFFFFFF),
+        surfaceDim = Color(0xFFE2E8F0),
+        surfaceBright = Color(0xFFFFFFFF),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFF8FAFC),
+        surfaceContainer = Color(0xFFF1F5F9),
+        surfaceContainerHigh = Color(0xFFE2E8F0),
+        surfaceContainerHighest = Color(0xFFCBD5E1),
+        onSurface = Color(0xFF0F172A),
+        onSurfaceVariant = Color(0xFF475569),
+        inverseSurface = Color(0xFF1E293B),
+        inverseOnSurface = Color(0xFFF8FAFC),
+        outline = Color(0xFF94A3B8),
+        outlineVariant = Color(0xFFE2E8F0),
+        surfaceTint = Color(0xFF4F46E5),
+
+        primary = Color(0xFF4F46E5),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFFEEF2FF),
+        onPrimaryContainer = Color(0xFF3730A3),
+        inversePrimary = Color(0xFF818CF8),
+        primaryFixed = Color(0xFFE0E7FF),
+        primaryFixedDim = Color(0xFFC7D2FE),
+        onPrimaryFixed = Color(0xFF1E1B4B),
+        onPrimaryFixedVariant = Color(0xFF3730A3),
+
+        secondary = Color(0xFF0891B2),
+        onSecondary = Color(0xFFFFFFFF),
+        secondaryContainer = Color(0xFFCFFAFE),
+        onSecondaryContainer = Color(0xFF155E75),
+        secondaryFixed = Color(0xFFBAE6FD),
+        secondaryFixedDim = Color(0xFF7DD3FC),
+        onSecondaryFixed = Color(0xFF082F49),
+        onSecondaryFixedVariant = Color(0xFF0369A1),
+
+        tertiary = Color(0xFF059669),
+        onTertiary = Color(0xFFFFFFFF),
+        tertiaryContainer = Color(0xFFD1FAE5),
+        onTertiaryContainer = Color(0xFF065F46),
+        tertiaryFixed = Color(0xFFA7F3D0),
+        tertiaryFixedDim = Color(0xFF6EE7B7),
+        onTertiaryFixed = Color(0xFF022C22),
+        onTertiaryFixedVariant = Color(0xFF047857),
+
+        error = Color(0xFFDC2626),
+        onError = Color(0xFFFFFFFF),
+        errorContainer = Color(0xFFFEE2E2),
+        onErrorContainer = Color(0xFF991B1B),
+
+        background = Color(0xFFF8FAFC),
+        onBackground = Color(0xFF0F172A),
+        surfaceVariant = Color(0xFFF1F5F9),
+    )
+
+    private val ElectricIndigoDark = MeritColorTokens(
+        surface = Color(0xFF111827),
+        surfaceDim = Color(0xFF0B0F19),
+        surfaceBright = Color(0xFF1E293B),
+        surfaceContainerLowest = Color(0xFF070A10),
+        surfaceContainerLow = Color(0xFF0F172A),
+        surfaceContainer = Color(0xFF1E293B),
+        surfaceContainerHigh = Color(0xFF334155),
+        surfaceContainerHighest = Color(0xFF475569),
+        onSurface = Color(0xFFF8FAFC),
+        onSurfaceVariant = Color(0xFF94A3B8),
+        inverseSurface = Color(0xFFF8FAFC),
+        inverseOnSurface = Color(0xFF0F172A),
+        outline = Color(0xFF475569),
+        outlineVariant = Color(0xFF334155),
+        surfaceTint = Color(0xFF818CF8),
+
+        primary = Color(0xFF818CF8),
+        onPrimary = Color(0xFF1E1B4B),
+        primaryContainer = Color(0xFF3730A3),
+        onPrimaryContainer = Color(0xFFE0E7FF),
+        inversePrimary = Color(0xFF4F46E5),
+        primaryFixed = Color(0xFFE0E7FF),
+        primaryFixedDim = Color(0xFFC7D2FE),
+        onPrimaryFixed = Color(0xFF1E1B4B),
+        onPrimaryFixedVariant = Color(0xFF3730A3),
+
+        secondary = Color(0xFF38BDF8),
+        onSecondary = Color(0xFF082F49),
+        secondaryContainer = Color(0xFF0369A1),
+        onSecondaryContainer = Color(0xFFE0F2FE),
+        secondaryFixed = Color(0xFFBAE6FD),
+        secondaryFixedDim = Color(0xFF7DD3FC),
+        onSecondaryFixed = Color(0xFF082F49),
+        onSecondaryFixedVariant = Color(0xFF0369A1),
+
+        tertiary = Color(0xFF34D399),
+        onTertiary = Color(0xFF022C22),
+        tertiaryContainer = Color(0xFF065F46),
+        onTertiaryContainer = Color(0xFFD1FAE5),
+        tertiaryFixed = Color(0xFFA7F3D0),
+        tertiaryFixedDim = Color(0xFF6EE7B7),
+        onTertiaryFixed = Color(0xFF022C22),
+        onTertiaryFixedVariant = Color(0xFF047857),
+
+        error = Color(0xFFF87171),
+        onError = Color(0xFF450A0A),
+        errorContainer = Color(0xFF991B1B),
+        onErrorContainer = Color(0xFFFEE2E2),
+
+        background = Color(0xFF0B0F19),
+        onBackground = Color(0xFFF8FAFC),
+        surfaceVariant = Color(0xFF1E293B),
+    )
+
+    // =========================================================================
+    // 5. SUNSET VIOLET (Warm Coral & Velvet Purple)
+    // =========================================================================
+    private val SunsetVioletLight = MeritColorTokens(
+        surface = Color(0xFFFFFFFF),
+        surfaceDim = Color(0xFFFBCFE8),
+        surfaceBright = Color(0xFFFFFFFF),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFFDF2F8),
+        surfaceContainer = Color(0xFFFCE7F3),
+        surfaceContainerHigh = Color(0xFFFBCFE8),
+        surfaceContainerHighest = Color(0xFFF472B6),
+        onSurface = Color(0xFF1E1B4B),
+        onSurfaceVariant = Color(0xFF6B21A8),
+        inverseSurface = Color(0xFF2D1E45),
+        inverseOnSurface = Color(0xFFFDF4FF),
+        outline = Color(0xFFC084FC),
+        outlineVariant = Color(0xFFF3E8FF),
+        surfaceTint = Color(0xFF7C3AED),
+
+        primary = Color(0xFF7C3AED),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFFEDE9FE),
+        onPrimaryContainer = Color(0xFF4C1D95),
+        inversePrimary = Color(0xFFA78BFA),
+        primaryFixed = Color(0xFFDDD6FE),
+        primaryFixedDim = Color(0xFFC4B5FD),
+        onPrimaryFixed = Color(0xFF2E1065),
+        onPrimaryFixedVariant = Color(0xFF5B21B6),
+
+        secondary = Color(0xFFE11D48),
+        onSecondary = Color(0xFFFFFFFF),
+        secondaryContainer = Color(0xFFFFE4E6),
+        onSecondaryContainer = Color(0xFF9F1239),
+        secondaryFixed = Color(0xFFFECDD3),
+        secondaryFixedDim = Color(0xFFFDA4AF),
+        onSecondaryFixed = Color(0xFF4C0519),
+        onSecondaryFixedVariant = Color(0xFFBE123C),
+
+        tertiary = Color(0xFFD97706),
+        onTertiary = Color(0xFFFFFFFF),
+        tertiaryContainer = Color(0xFFFEF3C7),
+        onTertiaryContainer = Color(0xFF92400E),
+        tertiaryFixed = Color(0xFFFDE68A),
+        tertiaryFixedDim = Color(0xFFFCD34D),
+        onTertiaryFixed = Color(0xFF451A03),
+        onTertiaryFixedVariant = Color(0xFFB45309),
+
+        error = Color(0xFFDC2626),
+        onError = Color(0xFFFFFFFF),
+        errorContainer = Color(0xFFFEE2E2),
+        onErrorContainer = Color(0xFF991B1B),
+
+        background = Color(0xFFFFF7ED),
+        onBackground = Color(0xFF1E1B4B),
+        surfaceVariant = Color(0xFFFCE7F3),
+    )
+
+    private val SunsetVioletDark = MeritColorTokens(
+        surface = Color(0xFF1D142C),
+        surfaceDim = Color(0xFF130D1E),
+        surfaceBright = Color(0xFF2D1E45),
+        surfaceContainerLowest = Color(0xFF0E0916),
+        surfaceContainerLow = Color(0xFF160F23),
+        surfaceContainer = Color(0xFF2D1E45),
+        surfaceContainerHigh = Color(0xFF3D295D),
+        surfaceContainerHighest = Color(0xFF583C85),
+        onSurface = Color(0xFFFDF4FF),
+        onSurfaceVariant = Color(0xFFD8B4FE),
+        inverseSurface = Color(0xFFFDF4FF),
+        inverseOnSurface = Color(0xFF1E1B4B),
+        outline = Color(0xFF9333EA),
+        outlineVariant = Color(0xFF581C87),
+        surfaceTint = Color(0xFFA78BFA),
+
+        primary = Color(0xFFA78BFA),
+        onPrimary = Color(0xFF2E1065),
+        primaryContainer = Color(0xFF4C1D95),
+        onPrimaryContainer = Color(0xFFEDE9FE),
+        inversePrimary = Color(0xFF7C3AED),
+        primaryFixed = Color(0xFFDDD6FE),
+        primaryFixedDim = Color(0xFFC4B5FD),
+        onPrimaryFixed = Color(0xFF2E1065),
+        onPrimaryFixedVariant = Color(0xFF5B21B6),
+
+        secondary = Color(0xFFFB7185),
+        onSecondary = Color(0xFF4C0519),
+        secondaryContainer = Color(0xFF9F1239),
+        onSecondaryContainer = Color(0xFFFFE4E6),
+        secondaryFixed = Color(0xFFFECDD3),
+        secondaryFixedDim = Color(0xFFFDA4AF),
+        onSecondaryFixed = Color(0xFF4C0519),
+        onSecondaryFixedVariant = Color(0xFFBE123C),
+
+        tertiary = Color(0xFFFBBF24),
+        onTertiary = Color(0xFF451A03),
+        tertiaryContainer = Color(0xFF92400E),
+        onTertiaryContainer = Color(0xFFFEF3C7),
+        tertiaryFixed = Color(0xFFFDE68A),
+        tertiaryFixedDim = Color(0xFFFCD34D),
+        onTertiaryFixed = Color(0xFF451A03),
+        onTertiaryFixedVariant = Color(0xFFB45309),
+
+        error = Color(0xFFF87171),
+        onError = Color(0xFF450A0A),
+        errorContainer = Color(0xFF991B1B),
+        onErrorContainer = Color(0xFFFEE2E2),
+
+        background = Color(0xFF130D1E),
+        onBackground = Color(0xFFFDF4FF),
+        surfaceVariant = Color(0xFF2D1E45),
+    )
+
+    // =========================================================================
+    // 6. CYBER MIDNIGHT (OLED Stealth · Pure Obsidian & Neon Cyan)
+    // =========================================================================
+    private val CyberMidnightLight = MeritColorTokens(
+        surface = Color(0xFFFFFFFF),
+        surfaceDim = Color(0xFFCBD5E1),
+        surfaceBright = Color(0xFFFFFFFF),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFF0FDF4),
+        surfaceContainer = Color(0xFFDCFCE7),
+        surfaceContainerHigh = Color(0xFFBBF7D0),
+        surfaceContainerHighest = Color(0xFF86EFAC),
+        onSurface = Color(0xFF052E16),
+        onSurfaceVariant = Color(0xFF166534),
+        inverseSurface = Color(0xFF111827),
+        inverseOnSurface = Color(0xFFF0FDF4),
+        outline = Color(0xFF22C55E),
+        outlineVariant = Color(0xFFBBF7D0),
+        surfaceTint = Color(0xFF059669),
+
+        primary = Color(0xFF059669),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFFA7F3D0),
+        onPrimaryContainer = Color(0xFF064E3B),
+        inversePrimary = Color(0xFF00F2FE),
+        primaryFixed = Color(0xFFA7F3D0),
+        primaryFixedDim = Color(0xFF6EE7B7),
+        onPrimaryFixed = Color(0xFF022C22),
+        onPrimaryFixedVariant = Color(0xFF065F46),
+
+        secondary = Color(0xFF0284C7),
+        onSecondary = Color(0xFFFFFFFF),
+        secondaryContainer = Color(0xFFBAE6FD),
+        onSecondaryContainer = Color(0xFF075985),
+        secondaryFixed = Color(0xFFBAE6FD),
+        secondaryFixedDim = Color(0xFF7DD3FC),
+        onSecondaryFixed = Color(0xFF082F49),
+        onSecondaryFixedVariant = Color(0xFF0369A1),
+
+        tertiary = Color(0xFF0D9488),
+        onTertiary = Color(0xFFFFFFFF),
+        tertiaryContainer = Color(0xFF99F6E4),
+        onTertiaryContainer = Color(0xFF115E59),
+        tertiaryFixed = Color(0xFFCCFBF1),
+        tertiaryFixedDim = Color(0xFF99F6E4),
+        onTertiaryFixed = Color(0xFF042F2E),
+        onTertiaryFixedVariant = Color(0xFF0F766E),
+
+        error = Color(0xFFDC2626),
+        onError = Color(0xFFFFFFFF),
+        errorContainer = Color(0xFFFEE2E2),
+        onErrorContainer = Color(0xFF991B1B),
+
+        background = Color(0xFFF0FDF4),
+        onBackground = Color(0xFF052E16),
+        surfaceVariant = Color(0xFFDCFCE7),
+    )
+
+    private val CyberMidnightDark = MeritColorTokens(
+        surface = Color(0xFF0A0D10),
+        surfaceDim = Color(0xFF040608),
+        surfaceBright = Color(0xFF12181F),
+        surfaceContainerLowest = Color(0xFF000000),
+        surfaceContainerLow = Color(0xFF040608),
+        surfaceContainer = Color(0xFF12181F),
+        surfaceContainerHigh = Color(0xFF1B242E),
+        surfaceContainerHighest = Color(0xFF293644),
+        onSurface = Color(0xFFE0F2FE),
+        onSurfaceVariant = Color(0xFF7DD3FC),
+        inverseSurface = Color(0xFFE0F2FE),
+        inverseOnSurface = Color(0xFF040608),
+        outline = Color(0xFF00ADB5),
+        outlineVariant = Color(0xFF0F3443),
+        surfaceTint = Color(0xFF00F2FE),
+
+        primary = Color(0xFF00F2FE),
+        onPrimary = Color(0xFF001F25),
+        primaryContainer = Color(0xFF00505A),
+        onPrimaryContainer = Color(0xFFA5F3FC),
+        inversePrimary = Color(0xFF059669),
+        primaryFixed = Color(0xFFA5F3FC),
+        primaryFixedDim = Color(0xFF00F2FE),
+        onPrimaryFixed = Color(0xFF001F25),
+        onPrimaryFixedVariant = Color(0xFF00505A),
+
+        secondary = Color(0xFF38BDF8),
+        onSecondary = Color(0xFF082F49),
+        secondaryContainer = Color(0xFF0C4A6E),
+        onSecondaryContainer = Color(0xFFBAE6FD),
+        secondaryFixed = Color(0xFFBAE6FD),
+        secondaryFixedDim = Color(0xFF38BDF8),
+        onSecondaryFixed = Color(0xFF082F49),
+        onSecondaryFixedVariant = Color(0xFF0C4A6E),
+
+        tertiary = Color(0xFF34D399),
+        onTertiary = Color(0xFF022C22),
+        tertiaryContainer = Color(0xFF065F46),
+        onTertiaryContainer = Color(0xFFA7F3D0),
+        tertiaryFixed = Color(0xFFA7F3D0),
+        tertiaryFixedDim = Color(0xFF34D399),
+        onTertiaryFixed = Color(0xFF022C22),
+        onTertiaryFixedVariant = Color(0xFF065F46),
+
+        error = Color(0xFFFF5252),
+        onError = Color(0xFF3A0000),
+        errorContainer = Color(0xFF8B0000),
+        onErrorContainer = Color(0xFFFFCDD2),
+
+        background = Color(0xFF000000),
+        onBackground = Color(0xFFE0F2FE),
+        surfaceVariant = Color(0xFF12181F),
+    )
+
+    // =========================================================================
+    // 7. NORDIC FROST (Scandi Minimal · Ice Blue & Deep Navy)
+    // =========================================================================
+    private val NordicFrostLight = MeritColorTokens(
+        surface = Color(0xFFFFFFFF),
+        surfaceDim = Color(0xFFCBD5E1),
+        surfaceBright = Color(0xFFFFFFFF),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFF1F5F9),
+        surfaceContainer = Color(0xFFE2E8F0),
+        surfaceContainerHigh = Color(0xFFCBD5E1),
+        surfaceContainerHighest = Color(0xFF94A3B8),
+        onSurface = Color(0xFF0F172A),
+        onSurfaceVariant = Color(0xFF475569),
+        inverseSurface = Color(0xFF1E293B),
+        inverseOnSurface = Color(0xFFF8FAFC),
+        outline = Color(0xFF64748B),
+        outlineVariant = Color(0xFFCBD5E1),
+        surfaceTint = Color(0xFF0284C7),
+
+        primary = Color(0xFF0284C7),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFFE0F2FE),
+        onPrimaryContainer = Color(0xFF0369A1),
+        inversePrimary = Color(0xFF38BDF8),
+        primaryFixed = Color(0xFFBAE6FD),
+        primaryFixedDim = Color(0xFF7DD3FC),
+        onPrimaryFixed = Color(0xFF082F49),
+        onPrimaryFixedVariant = Color(0xFF0369A1),
+
+        secondary = Color(0xFF0F766E),
+        onSecondary = Color(0xFFFFFFFF),
+        secondaryContainer = Color(0xFFCCFBF1),
+        onSecondaryContainer = Color(0xFF115E59),
+        secondaryFixed = Color(0xFF99F6E4),
+        secondaryFixedDim = Color(0xFF5EEAD4),
+        onSecondaryFixed = Color(0xFF042F2E),
+        onSecondaryFixedVariant = Color(0xFF0F766E),
+
+        tertiary = Color(0xFF475569),
+        onTertiary = Color(0xFFFFFFFF),
+        tertiaryContainer = Color(0xFFF1F5F9),
+        onTertiaryContainer = Color(0xFF1E293B),
+        tertiaryFixed = Color(0xFFE2E8F0),
+        tertiaryFixedDim = Color(0xFFCBD5E1),
+        onTertiaryFixed = Color(0xFF0F172A),
+        onTertiaryFixedVariant = Color(0xFF334155),
+
+        error = Color(0xFFBE123C),
+        onError = Color(0xFFFFFFFF),
+        errorContainer = Color(0xFFFFE4E6),
+        onErrorContainer = Color(0xFF9F1239),
+
+        background = Color(0xFFF0F4F8),
+        onBackground = Color(0xFF0F172A),
+        surfaceVariant = Color(0xFFE2E8F0),
+    )
+
+    private val NordicFrostDark = MeritColorTokens(
+        surface = Color(0xFF1C2541),
+        surfaceDim = Color(0xFF0B132B),
+        surfaceBright = Color(0xFF283655),
+        surfaceContainerLowest = Color(0xFF070C1B),
+        surfaceContainerLow = Color(0xFF131B32),
+        surfaceContainer = Color(0xFF1C2541),
+        surfaceContainerHigh = Color(0xFF2C3B63),
+        surfaceContainerHighest = Color(0xFF3A4F84),
+        onSurface = Color(0xFFE0FBFC),
+        onSurfaceVariant = Color(0xFFA5C4D4),
+        inverseSurface = Color(0xFFE0FBFC),
+        inverseOnSurface = Color(0xFF0B132B),
+        outline = Color(0xFF5C768D),
+        outlineVariant = Color(0xFF2C3B63),
+        surfaceTint = Color(0xFF48CAE4),
+
+        primary = Color(0xFF48CAE4),
+        onPrimary = Color(0xFF003049),
+        primaryContainer = Color(0xFF0077B6),
+        onPrimaryContainer = Color(0xFFCAF0F8),
+        inversePrimary = Color(0xFF0284C7),
+        primaryFixed = Color(0xFFCAF0F8),
+        primaryFixedDim = Color(0xFF90E0EF),
+        onPrimaryFixed = Color(0xFF003049),
+        onPrimaryFixedVariant = Color(0xFF0077B6),
+
+        secondary = Color(0xFF2EC4B6),
+        onSecondary = Color(0xFF012A27),
+        secondaryContainer = Color(0xFF0F766E),
+        onSecondaryContainer = Color(0xFFCBF3F0),
+        secondaryFixed = Color(0xFFCBF3F0),
+        secondaryFixedDim = Color(0xFF2EC4B6),
+        onSecondaryFixed = Color(0xFF012A27),
+        onSecondaryFixedVariant = Color(0xFF0F766E),
+
+        tertiary = Color(0xFF90E0EF),
+        onTertiary = Color(0xFF003049),
+        tertiaryContainer = Color(0xFF0077B6),
+        onTertiaryContainer = Color(0xFFCAF0F8),
+        tertiaryFixed = Color(0xFFCAF0F8),
+        tertiaryFixedDim = Color(0xFF90E0EF),
+        onTertiaryFixed = Color(0xFF003049),
+        onTertiaryFixedVariant = Color(0xFF0077B6),
+
+        error = Color(0xFFF43F5E),
+        onError = Color(0xFF4C0519),
+        errorContainer = Color(0xFF9F1239),
+        onErrorContainer = Color(0xFFFFE4E6),
+
+        background = Color(0xFF0B132B),
+        onBackground = Color(0xFFE0FBFC),
+        surfaceVariant = Color(0xFF1C2541),
+    )
+
+    // =========================================================================
+    // 8. AMBER HONEY (Warm Elegance · Golden Honey & Deep Espresso)
+    // =========================================================================
+    private val AmberHoneyLight = MeritColorTokens(
+        surface = Color(0xFFFFFFFF),
+        surfaceDim = Color(0xFFFEF08A),
+        surfaceBright = Color(0xFFFFFFFF),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFFEFCE8),
+        surfaceContainer = Color(0xFFFEF9C3),
+        surfaceContainerHigh = Color(0xFFFEF08A),
+        surfaceContainerHighest = Color(0xFFFDE047),
+        onSurface = Color(0xFF451A03),
+        onSurfaceVariant = Color(0xFF78350F),
+        inverseSurface = Color(0xFF281C0C),
+        inverseOnSurface = Color(0xFFFEFCE8),
+        outline = Color(0xFFD97706),
+        outlineVariant = Color(0xFFFDE68A),
+        surfaceTint = Color(0xFFCA8A04),
+
+        primary = Color(0xFFCA8A04),
+        onPrimary = Color(0xFFFFFFFF),
+        primaryContainer = Color(0xFFFEF08A),
+        onPrimaryContainer = Color(0xFF713F12),
+        inversePrimary = Color(0xFFFACC15),
+        primaryFixed = Color(0xFFFEF08A),
+        primaryFixedDim = Color(0xFFFDE047),
+        onPrimaryFixed = Color(0xFF422006),
+        onPrimaryFixedVariant = Color(0xFF854D0E),
+
+        secondary = Color(0xFF78350F),
+        onSecondary = Color(0xFFFFFFFF),
+        secondaryContainer = Color(0xFFFEF3C7),
+        onSecondaryContainer = Color(0xFF451A03),
+        secondaryFixed = Color(0xFFFDE68A),
+        secondaryFixedDim = Color(0xFFFCD34D),
+        onSecondaryFixed = Color(0xFF451A03),
+        onSecondaryFixedVariant = Color(0xFF92400E),
+
+        tertiary = Color(0xFF15803D),
+        onTertiary = Color(0xFFFFFFFF),
+        tertiaryContainer = Color(0xFFDCFCE7),
+        onTertiaryContainer = Color(0xFF14532D),
+        tertiaryFixed = Color(0xFFBBF7D0),
+        tertiaryFixedDim = Color(0xFF86EFAC),
+        onTertiaryFixed = Color(0xFF052E16),
+        onTertiaryFixedVariant = Color(0xFF166534),
+
+        error = Color(0xFFDC2626),
+        onError = Color(0xFFFFFFFF),
+        errorContainer = Color(0xFFFEE2E2),
+        onErrorContainer = Color(0xFF991B1B),
+
+        background = Color(0xFFFEFCE8),
+        onBackground = Color(0xFF451A03),
+        surfaceVariant = Color(0xFFFEF9C3),
+    )
+
+    private val AmberHoneyDark = MeritColorTokens(
+        surface = Color(0xFF281C0C),
+        surfaceDim = Color(0xFF1A1208),
+        surfaceBright = Color(0xFF3B2A14),
+        surfaceContainerLowest = Color(0xFF120C05),
+        surfaceContainerLow = Color(0xFF20160A),
+        surfaceContainer = Color(0xFF281C0C),
+        surfaceContainerHigh = Color(0xFF3E2D17),
+        surfaceContainerHighest = Color(0xFF563E20),
+        onSurface = Color(0xFFFEF08A),
+        onSurfaceVariant = Color(0xFFFDE047),
+        inverseSurface = Color(0xFFFEF08A),
+        inverseOnSurface = Color(0xFF1A1208),
+        outline = Color(0xFFCA8A04),
+        outlineVariant = Color(0xFF713F12),
+        surfaceTint = Color(0xFFFACC15),
+
+        primary = Color(0xFFFACC15),
+        onPrimary = Color(0xFF422006),
+        primaryContainer = Color(0xFF854D0E),
+        onPrimaryContainer = Color(0xFFFEF9C3),
+        inversePrimary = Color(0xFFCA8A04),
+        primaryFixed = Color(0xFFFEF08A),
+        primaryFixedDim = Color(0xFFFDE047),
+        onPrimaryFixed = Color(0xFF422006),
+        onPrimaryFixedVariant = Color(0xFF854D0E),
+
+        secondary = Color(0xFFFCD34D),
+        onSecondary = Color(0xFF451A03),
+        secondaryContainer = Color(0xFF92400E),
+        onSecondaryContainer = Color(0xFFFEF3C7),
+        secondaryFixed = Color(0xFFFDE68A),
+        secondaryFixedDim = Color(0xFFFCD34D),
+        onSecondaryFixed = Color(0xFF451A03),
+        onSecondaryFixedVariant = Color(0xFF92400E),
+
+        tertiary = Color(0xFF4ADE80),
+        onTertiary = Color(0xFF052E16),
+        tertiaryContainer = Color(0xFF166534),
+        onTertiaryContainer = Color(0xFFDCFCE7),
+        tertiaryFixed = Color(0xFFBBF7D0),
+        tertiaryFixedDim = Color(0xFF86EFAC),
+        onTertiaryFixed = Color(0xFF052E16),
+        onTertiaryFixedVariant = Color(0xFF166534),
+
+        error = Color(0xFFF87171),
+        onError = Color(0xFF450A0A),
+        errorContainer = Color(0xFF991B1B),
+        onErrorContainer = Color(0xFFFEE2E2),
+
+        background = Color(0xFF1A1208),
+        onBackground = Color(0xFFFEF08A),
+        surfaceVariant = Color(0xFF281C0C),
+    )
+
+    // =========================================================================
+    // 9. SHADCN ZINC (Modern Web UI - Cool Zinc & Crisp High-Contrast)
+    // =========================================================================
+    private val ShadcnZincLight = MeritColorTokens(
+        surface = Color(0xFFFFFFFF),
+        surfaceDim = Color(0xFFF4F4F5),
+        surfaceBright = Color(0xFFFFFFFF),
+        surfaceContainerLowest = Color(0xFFFFFFFF),
+        surfaceContainerLow = Color(0xFFFAFAFA),
+        surfaceContainer = Color(0xFFF4F4F5),
+        surfaceContainerHigh = Color(0xFFE4E4E7),
+        surfaceContainerHighest = Color(0xFFD4D4D8),
+        onSurface = Color(0xFF09090B),
+        onSurfaceVariant = Color(0xFF71717A),
+        inverseSurface = Color(0xFF09090B),
+        inverseOnSurface = Color(0xFFFAFAFA),
+        outline = Color(0xFF71717A),
+        outlineVariant = Color(0xFFE4E4E7),
+        surfaceTint = Color(0xFF18181B),
+
+        primary = Color(0xFF18181B),
+        onPrimary = Color(0xFFFAFAFA),
+        primaryContainer = Color(0xFFF4F4F5),
+        onPrimaryContainer = Color(0xFF18181B),
+        inversePrimary = Color(0xFFFAFAFA),
+        primaryFixed = Color(0xFFE4E4E7),
+        primaryFixedDim = Color(0xFFD4D4D8),
+        onPrimaryFixed = Color(0xFF18181B),
+        onPrimaryFixedVariant = Color(0xFF27272A),
+
+        secondary = Color(0xFF27272A),
+        onSecondary = Color(0xFFFAFAFA),
+        secondaryContainer = Color(0xFFF4F4F5),
+        onSecondaryContainer = Color(0xFF18181B),
+        secondaryFixed = Color(0xFFE4E4E7),
+        secondaryFixedDim = Color(0xFFD4D4D8),
+        onSecondaryFixed = Color(0xFF18181B),
+        onSecondaryFixedVariant = Color(0xFF27272A),
+
+        tertiary = Color(0xFF52525B),
+        onTertiary = Color(0xFFFAFAFA),
+        tertiaryContainer = Color(0xFFE4E4E7),
+        onTertiaryContainer = Color(0xFF18181B),
+        tertiaryFixed = Color(0xFFE4E4E7),
+        tertiaryFixedDim = Color(0xFFD4D4D8),
+        onTertiaryFixed = Color(0xFF18181B),
+        onTertiaryFixedVariant = Color(0xFF27272A),
+
+        error = Color(0xFFEF4444),
+        onError = Color(0xFFFFFFFF),
+        errorContainer = Color(0xFFFEE2E2),
+        onErrorContainer = Color(0xFF991B1B),
+
+        background = Color(0xFFFFFFFF),
+        onBackground = Color(0xFF09090B),
+        surfaceVariant = Color(0xFFF4F4F5),
+    )
+
+    private val ShadcnZincDark = MeritColorTokens(
+        surface = Color(0xFF09090B),
+        surfaceDim = Color(0xFF09090B),
+        surfaceBright = Color(0xFF27272A),
+        surfaceContainerLowest = Color(0xFF09090B),
+        surfaceContainerLow = Color(0xFF121215),
+        surfaceContainer = Color(0xFF18181B),
+        surfaceContainerHigh = Color(0xFF27272A),
+        surfaceContainerHighest = Color(0xFF3F3F46),
+        onSurface = Color(0xFFFAFAFA),
+        onSurfaceVariant = Color(0xFFA1A1AA),
+        inverseSurface = Color(0xFFFAFAFA),
+        inverseOnSurface = Color(0xFF09090B),
+        outline = Color(0xFF71717A),
+        outlineVariant = Color(0xFF27272A),
+        surfaceTint = Color(0xFFFAFAFA),
+
+        primary = Color(0xFFFAFAFA),
+        onPrimary = Color(0xFF18181B),
+        primaryContainer = Color(0xFF27272A),
+        onPrimaryContainer = Color(0xFFFAFAFA),
+        inversePrimary = Color(0xFF18181B),
+        primaryFixed = Color(0xFF27272A),
+        primaryFixedDim = Color(0xFF18181B),
+        onPrimaryFixed = Color(0xFFFAFAFA),
+        onPrimaryFixedVariant = Color(0xFFA1A1AA),
+
+        secondary = Color(0xFFA1A1AA),
+        onSecondary = Color(0xFF09090B),
+        secondaryContainer = Color(0xFF27272A),
+        onSecondaryContainer = Color(0xFFFAFAFA),
+        secondaryFixed = Color(0xFF27272A),
+        secondaryFixedDim = Color(0xFF18181B),
+        onSecondaryFixed = Color(0xFFFAFAFA),
+        onSecondaryFixedVariant = Color(0xFFA1A1AA),
+
+        tertiary = Color(0xFFD4D4D8),
+        onTertiary = Color(0xFF18181B),
+        tertiaryContainer = Color(0xFF27272A),
+        onTertiaryContainer = Color(0xFFFAFAFA),
+        tertiaryFixed = Color(0xFF27272A),
+        tertiaryFixedDim = Color(0xFF18181B),
+        onTertiaryFixed = Color(0xFFFAFAFA),
+        onTertiaryFixedVariant = Color(0xFFA1A1AA),
+
+        error = Color(0xFFF87171),
+        onError = Color(0xFF450A0A),
+        errorContainer = Color(0xFF7F1D1D),
+        onErrorContainer = Color(0xFFFEE2E2),
+
+        background = Color(0xFF09090B),
+        onBackground = Color(0xFFFAFAFA),
+        surfaceVariant = Color(0xFF18181B),
+    )
+
+    /**
+     * Default tokens for cold-start / preview without context.
+     */
+    val defaultColors: MeritColorTokens = ClassicLight
+
+    /**
+     * Look up color tokens for a given theme and dark/light mode.
+     */
+    fun getColorTokens(themeId: MeritThemeId, isDark: Boolean): MeritColorTokens {
+        return when (themeId) {
+            MeritThemeId.CLASSIC -> if (isDark) ClassicDark else ClassicLight
+            MeritThemeId.GOOGLE_SLATE -> if (isDark) GoogleSlateDark else GoogleSlateLight
+            MeritThemeId.MONOCHROME -> if (isDark) MonochromeDark else MonochromeLight
+            MeritThemeId.ELECTRIC_INDIGO -> if (isDark) ElectricIndigoDark else ElectricIndigoLight
+            MeritThemeId.SUNSET_VIOLET -> if (isDark) SunsetVioletDark else SunsetVioletLight
+            MeritThemeId.CYBER_MIDNIGHT -> if (isDark) CyberMidnightDark else CyberMidnightLight
+            MeritThemeId.NORDIC_FROST -> if (isDark) NordicFrostDark else NordicFrostLight
+            MeritThemeId.AMBER_HONEY -> if (isDark) AmberHoneyDark else AmberHoneyLight
+            MeritThemeId.SHADCN_ZINC -> if (isDark) ShadcnZincDark else ShadcnZincLight
+        }
+    }
+
+    /**
+     * Construct Material 3 ColorScheme corresponding to the theme tokens.
+     */
+    fun getM3ColorScheme(themeId: MeritThemeId, isDark: Boolean, tokens: MeritColorTokens): ColorScheme {
+        return if (isDark) {
+            darkColorScheme(
+                primary = tokens.primary,
+                onPrimary = tokens.onPrimary,
+                primaryContainer = tokens.primaryContainer,
+                onPrimaryContainer = tokens.onPrimaryContainer,
+                inversePrimary = tokens.inversePrimary,
+                secondary = tokens.secondary,
+                onSecondary = tokens.onSecondary,
+                secondaryContainer = tokens.secondaryContainer,
+                onSecondaryContainer = tokens.onSecondaryContainer,
+                tertiary = tokens.tertiary,
+                onTertiary = tokens.onTertiary,
+                tertiaryContainer = tokens.tertiaryContainer,
+                onTertiaryContainer = tokens.onTertiaryContainer,
+                error = tokens.error,
+                onError = tokens.onError,
+                errorContainer = tokens.errorContainer,
+                onErrorContainer = tokens.onErrorContainer,
+                background = tokens.background,
+                onBackground = tokens.onBackground,
+                surface = tokens.surface,
+                onSurface = tokens.onSurface,
+                surfaceVariant = tokens.surfaceVariant,
+                onSurfaceVariant = tokens.onSurfaceVariant,
+                outline = tokens.outline,
+                outlineVariant = tokens.outlineVariant,
+            )
+        } else {
+            lightColorScheme(
+                primary = tokens.primary,
+                onPrimary = tokens.onPrimary,
+                primaryContainer = tokens.primaryContainer,
+                onPrimaryContainer = tokens.onPrimaryContainer,
+                inversePrimary = tokens.inversePrimary,
+                secondary = tokens.secondary,
+                onSecondary = tokens.onSecondary,
+                secondaryContainer = tokens.secondaryContainer,
+                onSecondaryContainer = tokens.onSecondaryContainer,
+                tertiary = tokens.tertiary,
+                onTertiary = tokens.onTertiary,
+                tertiaryContainer = tokens.tertiaryContainer,
+                onTertiaryContainer = tokens.onTertiaryContainer,
+                error = tokens.error,
+                onError = tokens.onError,
+                errorContainer = tokens.errorContainer,
+                onErrorContainer = tokens.onErrorContainer,
+                background = tokens.background,
+                onBackground = tokens.onBackground,
+                surface = tokens.surface,
+                onSurface = tokens.onSurface,
+                surfaceVariant = tokens.surfaceVariant,
+                onSurfaceVariant = tokens.onSurfaceVariant,
+                surfaceContainerLowest = tokens.surfaceContainerLowest,
+                surfaceContainerLow = tokens.surfaceContainerLow,
+                surfaceContainer = tokens.surfaceContainer,
+                surfaceContainerHigh = tokens.surfaceContainerHigh,
+                surfaceContainerHighest = tokens.surfaceContainerHighest,
+                primaryFixed = tokens.primaryFixed,
+                primaryFixedDim = tokens.primaryFixedDim,
+                onPrimaryFixed = tokens.onPrimaryFixed,
+                secondaryFixed = tokens.secondaryFixed,
+                secondaryFixedDim = tokens.secondaryFixedDim,
+                onSecondaryFixed = tokens.onSecondaryFixed,
+                tertiaryFixed = tokens.tertiaryFixed,
+                tertiaryFixedDim = tokens.tertiaryFixedDim,
+                onTertiaryFixed = tokens.onTertiaryFixed,
+                outline = tokens.outline,
+                outlineVariant = tokens.outlineVariant,
+                inverseSurface = tokens.inverseSurface,
+                inverseOnSurface = tokens.inverseOnSurface,
+                surfaceTint = tokens.surfaceTint,
+            )
+        }
+    }
+
+    /**
+     * Get theme-specific structural styling (shapes, borders, shadows).
+     */
+    fun getThemeStyle(themeId: MeritThemeId): MeritThemeStyle {
+        return when (themeId) {
+            MeritThemeId.MONOCHROME -> MeritThemeStyle(
+                id = themeId,
+                cardCornerRadius = 8.dp,
+                buttonCornerRadius = 6.dp,
+                borderWidth = 1.dp,
+                shadowElevation = 0.dp,
+                shapes = Shapes(
+                    extraSmall = RoundedCornerShape(4.dp),
+                    small = RoundedCornerShape(6.dp),
+                    medium = RoundedCornerShape(8.dp),
+                    large = RoundedCornerShape(12.dp),
+                    extraLarge = RoundedCornerShape(16.dp),
+                ),
+            )
+            MeritThemeId.CYBER_MIDNIGHT -> MeritThemeStyle(
+                id = themeId,
+                cardCornerRadius = 10.dp,
+                buttonCornerRadius = 8.dp,
+                borderWidth = 1.5.dp,
+                shadowElevation = 0.dp,
+                shapes = Shapes(
+                    extraSmall = RoundedCornerShape(6.dp),
+                    small = RoundedCornerShape(8.dp),
+                    medium = RoundedCornerShape(10.dp),
+                    large = RoundedCornerShape(14.dp),
+                    extraLarge = RoundedCornerShape(18.dp),
+                ),
+            )
+            MeritThemeId.ELECTRIC_INDIGO -> MeritThemeStyle(
+                id = themeId,
+                cardCornerRadius = 18.dp,
+                buttonCornerRadius = 14.dp,
+                borderWidth = 1.dp,
+                shadowElevation = 3.dp,
+                shapes = Shapes(
+                    extraSmall = RoundedCornerShape(8.dp),
+                    small = RoundedCornerShape(12.dp),
+                    medium = RoundedCornerShape(18.dp),
+                    large = RoundedCornerShape(26.dp),
+                    extraLarge = RoundedCornerShape(32.dp),
+                ),
+            )
+            MeritThemeId.SHADCN_ZINC -> MeritThemeStyle(
+                id = themeId,
+                cardCornerRadius = 10.dp,
+                buttonCornerRadius = 8.dp,
+                borderWidth = 1.dp,
+                shadowElevation = 0.dp,
+                shapes = Shapes(
+                    extraSmall = RoundedCornerShape(4.dp),
+                    small = RoundedCornerShape(6.dp),
+                    medium = RoundedCornerShape(8.dp),
+                    large = RoundedCornerShape(10.dp),
+                    extraLarge = RoundedCornerShape(14.dp),
+                ),
+            )
+            else -> MeritThemeStyle(
+                id = themeId,
+                cardCornerRadius = 16.dp,
+                buttonCornerRadius = 12.dp,
+                borderWidth = 1.dp,
+                shadowElevation = 2.dp,
+                shapes = MeritShapes,
+            )
+        }
+    }
+
+    /**
+     * Pre-computed list of display items for the Theme Picker UI.
+     */
+    val allThemes: List<ThemeDisplayInfo> = listOf(
+        ThemeDisplayInfo(
+            id = MeritThemeId.CLASSIC,
+            name = MeritThemeId.CLASSIC.displayName,
+            description = MeritThemeId.CLASSIC.description,
+            category = MeritThemeId.CLASSIC.category,
+            previewPrimary = ClassicLight.primary,
+            previewAccent = ClassicLight.tertiary,
+            previewSurface = ClassicLight.surface,
+            previewBackground = ClassicLight.surfaceContainerLow,
+        ),
+        ThemeDisplayInfo(
+            id = MeritThemeId.SHADCN_ZINC,
+            name = MeritThemeId.SHADCN_ZINC.displayName,
+            description = MeritThemeId.SHADCN_ZINC.description,
+            category = MeritThemeId.SHADCN_ZINC.category,
+            previewPrimary = ShadcnZincLight.primary,
+            previewAccent = ShadcnZincLight.onSurfaceVariant,
+            previewSurface = ShadcnZincLight.surface,
+            previewBackground = ShadcnZincLight.surfaceContainer,
+        ),
+        ThemeDisplayInfo(
+            id = MeritThemeId.GOOGLE_SLATE,
+            name = MeritThemeId.GOOGLE_SLATE.displayName,
+            description = MeritThemeId.GOOGLE_SLATE.description,
+            category = MeritThemeId.GOOGLE_SLATE.category,
+            previewPrimary = GoogleSlateLight.primary,
+            previewAccent = GoogleSlateLight.secondary,
+            previewSurface = GoogleSlateLight.surface,
+            previewBackground = GoogleSlateLight.surfaceContainerLow,
+        ),
+        ThemeDisplayInfo(
+            id = MeritThemeId.MONOCHROME,
+            name = MeritThemeId.MONOCHROME.displayName,
+            description = MeritThemeId.MONOCHROME.description,
+            category = MeritThemeId.MONOCHROME.category,
+            previewPrimary = MonochromeLight.primary,
+            previewAccent = MonochromeLight.secondary,
+            previewSurface = MonochromeLight.surface,
+            previewBackground = MonochromeLight.surfaceContainerLow,
+        ),
+        ThemeDisplayInfo(
+            id = MeritThemeId.ELECTRIC_INDIGO,
+            name = MeritThemeId.ELECTRIC_INDIGO.displayName,
+            description = MeritThemeId.ELECTRIC_INDIGO.description,
+            category = MeritThemeId.ELECTRIC_INDIGO.category,
+            previewPrimary = ElectricIndigoLight.primary,
+            previewAccent = ElectricIndigoLight.secondary,
+            previewSurface = ElectricIndigoLight.surface,
+            previewBackground = ElectricIndigoLight.surfaceContainerLow,
+        ),
+        ThemeDisplayInfo(
+            id = MeritThemeId.SUNSET_VIOLET,
+            name = MeritThemeId.SUNSET_VIOLET.displayName,
+            description = MeritThemeId.SUNSET_VIOLET.description,
+            category = MeritThemeId.SUNSET_VIOLET.category,
+            previewPrimary = SunsetVioletLight.primary,
+            previewAccent = SunsetVioletLight.secondary,
+            previewSurface = SunsetVioletLight.surface,
+            previewBackground = SunsetVioletLight.background,
+        ),
+        ThemeDisplayInfo(
+            id = MeritThemeId.CYBER_MIDNIGHT,
+            name = MeritThemeId.CYBER_MIDNIGHT.displayName,
+            description = MeritThemeId.CYBER_MIDNIGHT.description,
+            category = MeritThemeId.CYBER_MIDNIGHT.category,
+            previewPrimary = CyberMidnightDark.primary,
+            previewAccent = CyberMidnightDark.secondary,
+            previewSurface = CyberMidnightDark.surface,
+            previewBackground = CyberMidnightDark.background,
+        ),
+        ThemeDisplayInfo(
+            id = MeritThemeId.NORDIC_FROST,
+            name = MeritThemeId.NORDIC_FROST.displayName,
+            description = MeritThemeId.NORDIC_FROST.description,
+            category = MeritThemeId.NORDIC_FROST.category,
+            previewPrimary = NordicFrostLight.primary,
+            previewAccent = NordicFrostLight.secondary,
+            previewSurface = NordicFrostLight.surface,
+            previewBackground = NordicFrostLight.background,
+        ),
+        ThemeDisplayInfo(
+            id = MeritThemeId.AMBER_HONEY,
+            name = MeritThemeId.AMBER_HONEY.displayName,
+            description = MeritThemeId.AMBER_HONEY.description,
+            category = MeritThemeId.AMBER_HONEY.category,
+            previewPrimary = AmberHoneyLight.primary,
+            previewAccent = AmberHoneyLight.secondary,
+            previewSurface = AmberHoneyLight.surface,
+            previewBackground = AmberHoneyLight.background,
+        ),
+    )
+}
