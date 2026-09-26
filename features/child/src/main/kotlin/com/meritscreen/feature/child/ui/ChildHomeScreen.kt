@@ -143,7 +143,6 @@ fun ChildHomeScreen(
     viewModel: ChildHomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val timerDebugState by viewModel.timerDebugState.collectAsStateWithLifecycle()
     val launchError by viewModel.launchError.collectAsStateWithLifecycle()
     val forceSignedOut by viewModel.forceSignedOut.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -211,12 +210,6 @@ fun ChildHomeScreen(
                     onEmergency = { tile ->
                         scope.launch { viewModel.onAppTapped(tile) }
                     },
-                    timerDebugState = timerDebugState,
-                    onDebugAddMinutes = { viewModel.debugAddMinutes(it) },
-                    onDebugSubtractMinutes = { viewModel.debugAddMinutes(-it) },
-                    onDebugTriggerQuiz = { viewModel.debugTriggerQuiz() },
-                    onDebugSyncNow = { viewModel.syncNow() },
-                    onDebugReset = { viewModel.debugResetBlock() },
                 )
             } else if (data.dailyRemainingMinutes != null && data.dailyRemainingMinutes <= 0) {
                 DailyLimitBlockerPane(
@@ -260,12 +253,6 @@ fun ChildHomeScreen(
                     launchError = launchError,
                     onClearLaunchError = viewModel::clearLaunchError,
                     iconLoader = viewModel.iconLoader,
-                    timerDebugState = timerDebugState,
-                    onDebugAddMinutes = { viewModel.debugAddMinutes(it) },
-                    onDebugSubtractMinutes = { viewModel.debugAddMinutes(-it) },
-                    onDebugTriggerQuiz = { viewModel.debugTriggerQuiz() },
-                    onDebugSyncNow = { viewModel.syncNow() },
-                    onDebugReset = { viewModel.debugResetBlock() },
                 )
             }
         }
@@ -343,12 +330,6 @@ fun ChildHomeContent(
     launchError: String? = null,
     onClearLaunchError: () -> Unit = {},
     iconLoader: AppIconLoader? = null,
-    timerDebugState: com.meritscreen.feature.child.domain.TimerDebugState? = null,
-    onDebugAddMinutes: (Float) -> Unit = {},
-    onDebugSubtractMinutes: (Float) -> Unit = {},
-    onDebugTriggerQuiz: () -> Unit = {},
-    onDebugSyncNow: () -> Unit = {},
-    onDebugReset: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -428,12 +409,6 @@ fun ChildHomeContent(
                             runCatching { voiceSearchLauncher.launch(voiceIntent) }
                         },
                         onCallParents = { launchNativePhone(context) },
-                        timerDebugState = timerDebugState,
-                        onDebugAddMinutes = onDebugAddMinutes,
-                        onDebugSubtractMinutes = onDebugSubtractMinutes,
-                        onDebugTriggerQuiz = onDebugTriggerQuiz,
-                        onDebugSyncNow = onDebugSyncNow,
-                        onDebugReset = onDebugReset,
                     )
                 } else {
                     PhoneOrPortraitHomeBody(
@@ -460,12 +435,6 @@ fun ChildHomeContent(
                             runCatching { voiceSearchLauncher.launch(voiceIntent) }
                         },
                         onCallParents = { launchNativePhone(context) },
-                        timerDebugState = timerDebugState,
-                        onDebugAddMinutes = onDebugAddMinutes,
-                        onDebugSubtractMinutes = onDebugSubtractMinutes,
-                        onDebugTriggerQuiz = onDebugTriggerQuiz,
-                        onDebugSyncNow = onDebugSyncNow,
-                        onDebugReset = onDebugReset,
                     )
                 }
             }
@@ -523,12 +492,6 @@ private fun PhoneOrPortraitHomeBody(
     scrollState: androidx.compose.foundation.ScrollState,
     onVoiceSearch: () -> Unit,
     onCallParents: () -> Unit,
-    timerDebugState: com.meritscreen.feature.child.domain.TimerDebugState? = null,
-    onDebugAddMinutes: (Float) -> Unit = {},
-    onDebugSubtractMinutes: (Float) -> Unit = {},
-    onDebugTriggerQuiz: () -> Unit = {},
-    onDebugSyncNow: () -> Unit = {},
-    onDebugReset: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -564,12 +527,6 @@ private fun PhoneOrPortraitHomeBody(
                 onVoiceSearch = onVoiceSearch,
                 onCallParents = onCallParents,
                 includeQuestAndSpeedDial = true,
-                timerDebugState = timerDebugState,
-                onDebugAddMinutes = onDebugAddMinutes,
-                onDebugSubtractMinutes = onDebugSubtractMinutes,
-                onDebugTriggerQuiz = onDebugTriggerQuiz,
-                onDebugSyncNow = onDebugSyncNow,
-                onDebugReset = onDebugReset,
             )
 
             ApprovedPlaygroundSection(
@@ -607,12 +564,6 @@ private fun TabletSplitHomeBody(
     isEarlyLearner: Boolean,
     onVoiceSearch: () -> Unit,
     onCallParents: () -> Unit,
-    timerDebugState: com.meritscreen.feature.child.domain.TimerDebugState? = null,
-    onDebugAddMinutes: (Float) -> Unit = {},
-    onDebugSubtractMinutes: (Float) -> Unit = {},
-    onDebugTriggerQuiz: () -> Unit = {},
-    onDebugSyncNow: () -> Unit = {},
-    onDebugReset: () -> Unit = {},
 ) {
     val sideScroll = rememberScrollState()
     Row(
@@ -643,12 +594,6 @@ private fun TabletSplitHomeBody(
                 onVoiceSearch = onVoiceSearch,
                 onCallParents = onCallParents,
                 includeQuestAndSpeedDial = true,
-                timerDebugState = timerDebugState,
-                onDebugAddMinutes = onDebugAddMinutes,
-                onDebugSubtractMinutes = onDebugSubtractMinutes,
-                onDebugTriggerQuiz = onDebugTriggerQuiz,
-                onDebugSyncNow = onDebugSyncNow,
-                onDebugReset = onDebugReset,
             )
             Spacer(modifier = Modifier.height(layout.dockClearance))
         }
@@ -689,12 +634,6 @@ private fun HomeChromeSections(
     onVoiceSearch: () -> Unit,
     onCallParents: () -> Unit,
     includeQuestAndSpeedDial: Boolean,
-    timerDebugState: com.meritscreen.feature.child.domain.TimerDebugState? = null,
-    onDebugAddMinutes: (Float) -> Unit = {},
-    onDebugSubtractMinutes: (Float) -> Unit = {},
-    onDebugTriggerQuiz: () -> Unit = {},
-    onDebugSyncNow: () -> Unit = {},
-    onDebugReset: () -> Unit = {},
 ) {
     KidProfileHeader(
         layout = layout,
@@ -704,16 +643,6 @@ private fun HomeChromeSections(
         onParentLock = onOpenPin,
     )
 
-    if (timerDebugState != null) {
-        ChildTimerDebugBar(
-            state = timerDebugState,
-            onAddMinutes = onDebugAddMinutes,
-            onSubtractMinutes = onDebugSubtractMinutes,
-            onTriggerQuiz = onDebugTriggerQuiz,
-            onSyncNow = onDebugSyncNow,
-            onReset = onDebugReset,
-        )
-    }
 
     if (!data.isDefaultHome) {
         HomeRoleBanner(onSetup = onOpenLauncherSetup)
@@ -2708,12 +2637,6 @@ private fun FailLockPane(
     title: String = "Let’s take a mindful rest",
     subtitle: String = "Apps are temporarily paused by your parent. Emergency calls remain available anytime.",
     hideCountdown: Boolean = false,
-    timerDebugState: com.meritscreen.feature.child.domain.TimerDebugState? = null,
-    onDebugAddMinutes: (Float) -> Unit = {},
-    onDebugSubtractMinutes: (Float) -> Unit = {},
-    onDebugTriggerQuiz: () -> Unit = {},
-    onDebugSyncNow: () -> Unit = {},
-    onDebugReset: () -> Unit = {},
 ) {
     val context = LocalContext.current
     DisposableEffect(Unit) {
@@ -2732,23 +2655,10 @@ private fun FailLockPane(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .padding(24.dp)
-                .verticalScroll(rememberScrollState()),
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            if (timerDebugState != null) {
-                ChildTimerDebugBar(
-                    state = timerDebugState,
-                    onAddMinutes = onDebugAddMinutes,
-                    onSubtractMinutes = onDebugSubtractMinutes,
-                    onTriggerQuiz = onDebugTriggerQuiz,
-                    onSyncNow = onDebugSyncNow,
-                    onReset = onDebugReset,
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-            }
             Box(
                 modifier = Modifier
                     .size(64.dp)

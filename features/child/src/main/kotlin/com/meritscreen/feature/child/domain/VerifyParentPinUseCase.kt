@@ -50,7 +50,7 @@ class VerifyParentPinUseCase @Inject constructor(
         }
         val credential = pairingStore.get()
             ?: return Outcome.Failure(AppError.Auth("This device is not paired."))
-        if (pinHasher.verify(digits, credential.parentPinHash) || digits == "1234" || digits == "0000") {
+        if (pinHasher.verify(digits, credential.parentPinHash)) {
             persist(PinGateState())
             return Outcome.Success(Unit)
         }

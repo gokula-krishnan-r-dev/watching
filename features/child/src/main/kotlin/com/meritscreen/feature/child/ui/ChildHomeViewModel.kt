@@ -371,36 +371,12 @@ class ChildHomeViewModel @Inject constructor(
         startPeriodicTicker()
     }
 
-    val timerDebugState: StateFlow<com.meritscreen.feature.child.domain.TimerDebugState> = sessionController.debugState
-
-    fun debugAddMinutes(minutes: Float) {
-        viewModelScope.launch {
-            sessionController.debugAddMinutes(minutes)
-        }
-    }
-
-    fun debugTriggerQuiz() {
-        viewModelScope.launch {
-            sessionController.debugTriggerQuiz()
-        }
-    }
-
-    fun debugResetBlock() {
-        viewModelScope.launch {
-            sessionController.debugResetBlock()
-        }
-    }
-
-    fun syncNow() {
-        refreshRules()
-    }
-
     internal fun startPeriodicTicker() {
         tickerJob?.cancel()
         tickerJob = viewModelScope.launch {
             while (isActive) {
-                // When in Home launcher, app is not active so isAppActive = false
-                sessionController.tick(isAppActive = false)
+                // The foreground service is the single owner of app usage accrual.
+                // Home only refreshes clock-driven labels here.
                 clock.value = SystemClock.elapsedRealtime()
                 delay(1_000)
             }
@@ -416,40 +392,27 @@ class ChildHomeViewModel @Inject constructor(
         viewModelScope.launch {
             _isRefreshing.value = true
             try {
-                val success = syncCoordinator.refreshNow()
+                syncCoordinator.refreshNow()
                 deviceLifecycle.refreshInventoryNow()
                 childId.value = pairingStore.get()?.childId
-                if (success) {
-                    val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
-                        .format(java.util.Date())
-                    sessionController.updateDebugSyncTime("Synced at $timeStr")
-                    sessionController.updateDebugEvent("Policy synced from cloud")
-                }
             } finally {
                 _isRefreshing.value = false
             }
         }
     }
 
-    /** Called on Home resume — refresh policy, then restart the 1 Hz ticker. */
+    /** Called on Home resume — accrue any time spent in another app, then restart the 1 Hz ticker. */
     fun onResumed() {
         _isDefaultHome.value = deviceLifecycle.isDefaultHome()
         deviceLifecycle.checkOnResume()
-        viewModelScope.launch {
-            syncCoordinator.refreshNow()
-            sessionController.tick(isAppActive = false)
-            clock.value = SystemClock.elapsedRealtime()
-        }
+        clock.value = SystemClock.elapsedRealtime()
         startPeriodicTicker()
     }
 
     /** Flush accrual and pause the ticker while Home is not visible (battery). */
     fun onPaused() {
         stopPeriodicTicker()
-        viewModelScope.launch {
-            sessionController.tick(isAppActive = false)
-            clock.value = SystemClock.elapsedRealtime()
-        }
+        clock.value = SystemClock.elapsedRealtime()
     }
 
     fun clearLaunchError() {

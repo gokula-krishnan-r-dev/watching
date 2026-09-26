@@ -150,6 +150,7 @@ class ChildQuizViewModel @Inject constructor(
     private var rewardsEnabled = true
     private var extraMinutesOnPass = 30
     private var currentPolicy: ChildPolicy? = null
+    private var completionStarted = false
 
     private var questionStartTimeMs: Long = 0L
     private var lockoutCountdownJob: Job? = null
@@ -306,6 +307,10 @@ class ChildQuizViewModel @Inject constructor(
 
     fun beginQuestions() {
         viewModelScope.launch {
+            if (questions.isNotEmpty() && _uiState.value is UiState.Success &&
+                (_uiState.value as UiState.Success).data.step is QuizUiStep.Question
+            ) return@launch
+            completionStarted = false
             questions.clear()
             used.clear()
             correctCount = 0
@@ -334,6 +339,9 @@ class ChildQuizViewModel @Inject constructor(
 
     fun answer(choiceId: String) {
         questionTimerJob?.cancel()
+        val visible = _uiState.value as? UiState.Success ?: return
+        val visibleQuestion = visible.data.step as? QuizUiStep.Question ?: return
+        if (visibleQuestion.evaluatedChoiceId != null || completionStarted) return
         val current = questions.getOrNull(index) ?: return
         val responseTimeMs = (SystemClock.elapsedRealtime() - questionStartTimeMs).coerceAtLeast(0)
         val skill = skills[current.topic] ?: TopicSkill(current.topic)
@@ -477,6 +485,9 @@ class ChildQuizViewModel @Inject constructor(
 
     fun onQuestionTimeout() {
         questionTimerJob?.cancel()
+        val visible = _uiState.value as? UiState.Success ?: return
+        val visibleQuestion = visible.data.step as? QuizUiStep.Question ?: return
+        if (visibleQuestion.evaluatedChoiceId != null || completionStarted) return
         val current = questions.getOrNull(index) ?: return
         val skill = skills[current.topic] ?: TopicSkill(current.topic)
         lastWrongConcept = current.conceptId
@@ -579,6 +590,15 @@ class ChildQuizViewModel @Inject constructor(
     }
 
     private fun advanceAfterFeedback() {
+        if (completionStarted) return
+        val current = _uiState.value as? UiState.Success ?: return
+        val step = current.data.step
+        val canAdvance = when (step) {
+            is QuizUiStep.Question -> step.evaluatedChoiceId != null
+            is QuizUiStep.Feedback, is QuizUiStep.LockedExplanation -> true
+            else -> false
+        }
+        if (!canAdvance) return
         index += 1
         if (index >= total) {
             finish()
@@ -625,6 +645,8 @@ class ChildQuizViewModel @Inject constructor(
     }
 
     private fun finish() {
+        if (completionStarted) return
+        completionStarted = true
         questionTimerJob?.cancel()
         lockoutCountdownJob?.cancel()
         viewModelScope.launch {

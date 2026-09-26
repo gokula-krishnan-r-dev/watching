@@ -47,6 +47,7 @@ class ChildTimeLimitService : Service() {
     private val serviceScope by lazy { CoroutineScope(SupervisorJob() + dispatchers.default) }
     private var monitorJob: Job? = null
     private var lastOverlayTriggerElapsedMs = 0L
+    private val foregroundTracker = ForegroundAppDetector.Tracker()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -82,91 +83,84 @@ class ChildTimeLimitService : Service() {
                         continue
                     }
 
-                    // Foreground app detection & lifecycle
-                    val info = ForegroundAppDetector.getForegroundInfo(this@ChildTimeLimitService)
-                    val isOverlayActive = ChildTimeLimitOverlayActivity.isOverlayShowing
-                    val currentForeground = info.packageName
-                    val isLauncher = info.isLauncher || info.lifecycleState == ForegroundLifecycleState.LAUNCHER
+                    // Check if screen is interactive (screen is turned on)
+                    val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                    val isScreenInteractive = powerManager?.isInteractive ?: true
+                    if (!isScreenInteractive) {
+                        delay(2_000L)
+                        continue
+                    }
 
-                    val isThirdPartyAppActive = info.lifecycleState == ForegroundLifecycleState.FOREGROUND_ACTIVE &&
-                        !isLauncher &&
-                        !isOverlayActive &&
-                        currentForeground != null &&
-                        currentForeground != packageName
-
-                    android.util.Log.d(
-                        "MeritDetector",
-                        "tick: isThirdPartyActive=$isThirdPartyAppActive pkg=$currentForeground state=${info.lifecycleState} launcher=$isLauncher overlay=$isOverlayActive"
-                    )
+                    // Foreground app detection
+                    val hasUsagePermission = ForegroundAppDetector.hasUsageStatsPermission(this@ChildTimeLimitService)
+                    val currentForeground = if (hasUsagePermission) {
+                        foregroundTracker.currentPackage(this@ChildTimeLimitService)
+                    } else null
 
                     val policy = sessionController.currentPolicy()
                     val snapshot = sessionController.snapshot.value
                     val now = SystemClock.elapsedRealtime()
 
-                    sessionController.updateDebugLifecycle(
-                        state = info.lifecycleState,
-                        isAppActive = isThirdPartyAppActive,
-                        isOverlayShowing = isOverlayActive,
-                        packageName = currentForeground,
-                    )
-
                     // Handle app transitions
-                    if (isThirdPartyAppActive && currentForeground != null) {
-                        val isEmergency = SessionEngine.isEmergencyPackage(currentForeground, policy)
-                        val rules = policyRepository.listAppRules(credential.childId)
-                        val rule = rules.firstOrNull { it.packageOrBundleId == currentForeground }
-                        val isAllowed = rule?.allowed ?: true
+                    if (currentForeground != null) {
+                        if (currentForeground == packageName) {
+                            // User is inside Watching / MeritScreen launcher or UI
+                            // The app block remains paused while MeritScreen is visible.
+                            // Returning Home must not erase the block or its accrued time.
+                        } else {
+                            // User is in a third-party app
+                            val isEmergency = SessionEngine.isEmergencyPackage(currentForeground, policy)
+                            val rules = policyRepository.listAppRules(credential.childId)
+                            val rule = rules.firstOrNull { it.packageOrBundleId == currentForeground }
+                            val isAllowed = rule?.allowed ?: true
 
-                        if (snapshot.phase == SessionPhase.Shielded && !isEmergency) {
-                            enforceReturnHome()
-                        } else if (policy.paused && !isEmergency) {
-                            enforceReturnHome()
-                        } else if (!isAllowed && !isEmergency) {
-                            enforceReturnHome()
-                        } else if (isAllowed && snapshot.phase != SessionPhase.QuizDue &&
-                            (snapshot.phase != SessionPhase.InBlock || snapshot.activePackage != currentForeground)
-                        ) {
-                            val appRule = rule ?: com.meritscreen.core.common.domain.AppRule(
-                                appId = currentForeground.replace('.', '_'),
-                                packageOrBundleId = currentForeground,
-                                allowed = true,
-                                blockMinutes = policy.defaultBlockMinutes,
-                            )
-                            sessionController.openApp(appRule)
+                            if (snapshot.phase == SessionPhase.Shielded && !isEmergency) {
+                                enforceReturnHome()
+                            } else if (policy.paused && !isEmergency) {
+                                enforceReturnHome()
+                            } else if (!isAllowed && !isEmergency) {
+                                enforceReturnHome()
+                            } else if (isAllowed && snapshot.phase != SessionPhase.QuizDue &&
+                                (snapshot.phase != SessionPhase.InBlock || snapshot.activePackage != currentForeground)
+                            ) {
+                                val appRule = rule ?: com.meritscreen.core.common.domain.AppRule(
+                                    appId = currentForeground.replace('.', '_'),
+                                    packageOrBundleId = currentForeground,
+                                    allowed = true,
+                                    blockMinutes = policy.defaultBlockMinutes,
+                                )
+                                sessionController.openApp(appRule)
+                            }
                         }
                     }
 
-                    // Continuous authoritative engine tick
-                    sessionController.tick(
-                        activeForegroundPackage = currentForeground,
-                        isAppActive = isThirdPartyAppActive,
-                    )
+                    // Continuous local engine tick
+                    val trackedAppIsForeground = snapshot.phase == SessionPhase.InBlock &&
+                        currentForeground.equals(snapshot.activePackage, ignoreCase = true)
+                    sessionController.tick(isAppActive = trackedAppIsForeground)
                     val updatedSnapshot = sessionController.snapshot.value
 
                     when (updatedSnapshot.phase) {
                         SessionPhase.InBlock -> {
-                            val remSec = updatedSnapshot.remainingBlockSeconds(now)
-                            val remMin = remSec / 60
-                            val remSecLeft = remSec % 60
+                            val remainingMinutes = updatedSnapshot.remainingBlockMinutes(now)
                             val appName = updatedSnapshot.activePackage?.substringAfterLast('.') ?: "App"
-                            val statePrefix = if (isThirdPartyAppActive) "Active" else "Paused"
-                            updateNotification("$statePrefix: $appName • ${remMin}m ${remSecLeft}s left")
+                            updateNotification("Active: $appName • ${remainingMinutes}m left")
                             delay(1_000L)
                         }
 
                         SessionPhase.QuizDue -> {
                             updateNotification("Time’s up! Complete quiz challenge to continue")
-                            // Only trigger overlay pop-up if not already in overlay and third-party app is active
-                            if (!isOverlayActive && isThirdPartyAppActive) {
+                            // Only trigger overlay pop-up if not already in Watching app
+                            if (currentForeground != packageName) {
                                 triggerOverlayPopUp(updatedSnapshot.activePackage)
                             }
-                            delay(1_500L)
+                            delay(2_000L)
                         }
 
                         SessionPhase.Shielded -> {
                             val remainingSeconds = updatedSnapshot.remainingCooldownSeconds(now)
                             updateNotification("Cooldown active • ${remainingSeconds}s remaining")
-                            delay(1_000L)
+                            delay(1_500L)
                         }
 
                         SessionPhase.Idle -> {

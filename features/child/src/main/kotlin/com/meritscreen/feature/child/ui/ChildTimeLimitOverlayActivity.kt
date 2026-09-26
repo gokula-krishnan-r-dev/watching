@@ -93,21 +93,6 @@ class ChildTimeLimitOverlayActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        isOverlayShowing = true
-    }
-
-    override fun onStop() {
-        isOverlayShowing = false
-        super.onStop()
-    }
-
-    override fun onDestroy() {
-        isOverlayShowing = false
-        super.onDestroy()
-    }
-
     private fun returnToHome() {
         lifecycleScope.launch {
             runCatching { sessionController.returnHome() }
@@ -121,10 +106,6 @@ class ChildTimeLimitOverlayActivity : ComponentActivity() {
     }
 
     companion object {
-        @Volatile
-        var isOverlayShowing: Boolean = false
-            private set
-
         fun createIntent(context: Context): Intent =
             Intent(context, ChildTimeLimitOverlayActivity::class.java).apply {
                 addFlags(

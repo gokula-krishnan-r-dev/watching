@@ -127,28 +127,6 @@ object SessionEngine {
                 // Inactive tick (minimized / paused / screen off): advance lastTick without accruing time
                 state = state.copy(lastTickElapsedMs = nowElapsedMs)
             }
-        } else if (state.phase == SessionPhase.Idle) {
-            // Track active screen time while child is exploring launcher or educational activities
-            val lastTick = state.lastTickElapsedMs
-            val deltaMs = if (lastTick != null && isAppActive) {
-                (nowElapsedMs - lastTick).coerceAtLeast(0L)
-            } else {
-                0L
-            }
-            if (isAppActive && deltaMs > 0L) {
-                val previousAccruedMs = kotlin.math.round(state.minutesAccruedInBlock * 60_000.0).toLong()
-                val accruedMs = previousAccruedMs + deltaMs
-                val newlyCompletedMinutes = (accruedMs / 60_000L).toInt()
-                val leftoverMs = accruedMs % 60_000L
-                val today = state.minutesUsedToday + newlyCompletedMinutes
-                state = state.copy(
-                    minutesAccruedInBlock = (leftoverMs / 60_000.0).toFloat(),
-                    minutesUsedToday = today,
-                    lastTickElapsedMs = nowElapsedMs,
-                )
-            } else {
-                state = state.copy(lastTickElapsedMs = nowElapsedMs)
-            }
         }
         return state
     }
@@ -159,7 +137,9 @@ object SessionEngine {
         rule: AppRule,
         policy: ChildPolicy,
     ): SessionSnapshot {
-        var state = tick(snapshot, nowElapsedMs, policy, isAppActive = true)
+        // Session time is accrued by the foreground monitor, which knows whether the
+        // previously tracked package actually remained visible until this transition.
+        var state = tick(snapshot, nowElapsedMs, policy, isAppActive = false)
         if (rule.isEmergency || isEmergencyPackage(rule.packageOrBundleId, policy)) {
             return state
         }

@@ -29,9 +29,6 @@ class ChildSessionController @Inject constructor(
     private val _snapshot = MutableStateFlow(SessionSnapshot())
     val snapshot: StateFlow<SessionSnapshot> = _snapshot.asStateFlow()
 
-    private val _debugState = MutableStateFlow(TimerDebugState())
-    val debugState: StateFlow<TimerDebugState> = _debugState.asStateFlow()
-
     private var lastPersisted: SessionSnapshot? = null
     private var lastPersistElapsedMs: Long = 0L
 
@@ -46,7 +43,7 @@ class ChildSessionController @Inject constructor(
 
     fun observe(): Flow<SessionSnapshot> = snapshot
 
-    suspend fun tick(activeForegroundPackage: String? = null, isAppActive: Boolean = true) {
+    suspend fun tick(isAppActive: Boolean = false) {
         mutex.withLock {
             val childId = pairingStore.get()?.childId ?: return
             val policy = policyRepository.getPolicy(childId)
@@ -55,23 +52,6 @@ class ChildSessionController @Inject constructor(
             recordUsageDelta(childId, previous, next)
             _snapshot.value = next
             persist(next, force = false)
-
-            val ceiling = policy.dailyCeilingMinutes ?: com.meritscreen.core.common.config.AppConfig.DEFAULT_DAILY_CEILING_MINUTES
-            val accruedSec = (next.minutesAccruedInBlock * 60f).toInt()
-            val remSec = next.remainingBlockSeconds(now())
-            _debugState.update { cur ->
-                cur.copy(
-                    activePackage = next.activePackage ?: activeForegroundPackage,
-                    phase = next.phase,
-                    isAppActive = isAppActive,
-                    accruedMinutes = next.minutesAccruedInBlock,
-                    accruedSeconds = accruedSec,
-                    blockLimitMinutes = next.blockDurationMinutes,
-                    remainingSeconds = remSec,
-                    minutesUsedToday = next.minutesUsedToday,
-                    dailyCeilingMinutes = ceiling,
-                )
-            }
         }
     }
 
@@ -124,81 +104,17 @@ class ChildSessionController @Inject constructor(
     }
 
     suspend fun returnHome(): SessionSnapshot = mutex.withLock {
-        val next = SessionEngine.returnHome(_snapshot.value, now())
+        // Returning to the launcher pauses the active app session; it does not grant a
+        // fresh block or discard already accrued usage. The monitor resumes it on reopen.
+        val next = SessionEngine.tick(
+            _snapshot.value,
+            now(),
+            policyRepository.getPolicy(pairingStore.get()?.childId ?: return _snapshot.value),
+            isAppActive = false,
+        )
         _snapshot.value = next
         persist(next, force = true)
-        updateDebugEvent("Returned to Home")
         next
-    }
-
-    suspend fun debugAddMinutes(minutes: Float) = mutex.withLock {
-        val previous = _snapshot.value
-        val newAccrued = (previous.minutesAccruedInBlock + minutes)
-            .coerceIn(0f, previous.blockDurationMinutes.toFloat())
-        val newUsedToday = (previous.minutesUsedToday + minutes.toInt()).coerceAtLeast(0)
-        var next = previous.copy(
-            minutesAccruedInBlock = newAccrued,
-            minutesUsedToday = newUsedToday,
-        )
-        if (newAccrued >= previous.blockDurationMinutes && previous.phase == SessionPhase.InBlock) {
-            next = next.copy(phase = SessionPhase.QuizDue, blockStartedElapsedMs = null)
-        }
-        _snapshot.value = next
-        persist(next, force = true)
-        val sign = if (minutes >= 0) "+" else ""
-        updateDebugEvent("Debug: ${sign}${minutes.toInt()}m adjusted")
-    }
-
-    suspend fun debugTriggerQuiz() = mutex.withLock {
-        val previous = _snapshot.value
-        val next = previous.copy(
-            phase = SessionPhase.QuizDue,
-            minutesAccruedInBlock = previous.blockDurationMinutes.toFloat(),
-            blockStartedElapsedMs = null,
-        )
-        _snapshot.value = next
-        persist(next, force = true)
-        updateDebugEvent("Debug: Quiz triggered manually")
-    }
-
-    suspend fun debugResetBlock() = mutex.withLock {
-        val previous = _snapshot.value
-        val next = previous.copy(
-            phase = SessionPhase.Idle,
-            activePackage = null,
-            activeAppId = null,
-            blockStartedElapsedMs = null,
-            minutesAccruedInBlock = 0f,
-            deviceShieldedUntilElapsedMs = null,
-            quizGraceUntilElapsedMs = null,
-        )
-        _snapshot.value = next
-        persist(next, force = true)
-        updateDebugEvent("Debug: Session reset to Idle")
-    }
-
-    fun updateDebugEvent(event: String) {
-        _debugState.update { it.copy(lastEvent = event) }
-    }
-
-    fun updateDebugLifecycle(
-        state: com.meritscreen.feature.child.service.ForegroundLifecycleState,
-        isAppActive: Boolean,
-        isOverlayShowing: Boolean,
-        packageName: String? = null,
-    ) {
-        _debugState.update {
-            it.copy(
-                lifecycleState = state,
-                isAppActive = isAppActive,
-                isOverlayShowing = isOverlayShowing,
-                activePackage = packageName ?: it.activePackage,
-            )
-        }
-    }
-
-    fun updateDebugSyncTime(timeStr: String) {
-        _debugState.update { it.copy(lastSyncTime = timeStr) }
     }
 
     suspend fun currentPolicy(): ChildPolicy {

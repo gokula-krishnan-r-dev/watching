@@ -110,6 +110,41 @@ class SessionEngineTest {
     }
 
     @Test
+    fun foregroundUsage_pausesWhenAppLeavesForegroundAndResumesWithoutReset() {
+        val policy = ChildPolicy()
+        var state = SessionEngine.openApp(SessionSnapshot(), 0L, youtube, policy)
+        state = SessionEngine.tick(state, 2 * 60_000L, policy, isAppActive = true)
+        state = SessionEngine.tick(state, 12 * 60_000L, policy, isAppActive = false)
+        assertEquals(2, state.minutesUsedToday)
+        assertEquals(28, state.remainingBlockMinutes())
+
+        state = SessionEngine.tick(state, 15 * 60_000L, policy, isAppActive = true)
+        assertEquals(5, state.minutesUsedToday)
+        assertEquals(25, state.remainingBlockMinutes())
+        assertEquals(SessionPhase.InBlock, state.phase)
+    }
+
+    @Test
+    fun returningToLauncherDoesNotClearGrantedBlock() {
+        val passed = SessionEngine.onQuizPassed(
+            SessionSnapshot(
+                phase = SessionPhase.QuizDue,
+                activePackage = youtube.packageOrBundleId,
+                activeAppId = youtube.appId,
+            ),
+            nowElapsedMs = 5_000L,
+            youtube,
+            ChildPolicy(),
+        )
+
+        val paused = SessionEngine.tick(passed, 65_000L, ChildPolicy(), isAppActive = false)
+        assertEquals(SessionPhase.InBlock, paused.phase)
+        assertEquals(youtube.packageOrBundleId, paused.activePackage)
+        assertEquals(0, paused.minutesUsedToday)
+        assertEquals(30, paused.remainingBlockMinutes())
+    }
+
+    @Test
     fun pausedPolicy_blocksNonEmergencyLaunch() {
         val policy = ChildPolicy(paused = true)
         assertFalse(SessionEngine.canLaunch(SessionSnapshot(), youtube, policy))
@@ -164,4 +199,3 @@ class SessionEngineTest {
         assertEquals(119, state.dailyRemainingMinutes(policy)) // 120 - 1 = 119
     }
 }
-
