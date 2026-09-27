@@ -17,7 +17,8 @@ object AppConfig {
     const val EMAIL_OTP_TTL_MINUTES: Int = 10
     const val EMAIL_OTP_RESEND_COOLDOWN_SECONDS: Int = 42
     const val EMAIL_OTP_MAX_ATTEMPTS: Int = 5
-    const val DEFAULT_BLOCK_MINUTES: Int = 30
+    /** Default app allowance assigned when a parent newly allows an application. */
+    const val DEFAULT_BLOCK_MINUTES: Int = 15
     const val DEFAULT_COOLDOWN_MINUTES: Int = 15
     /** XP granted on each passed quiz when stickers/rewards are enabled. */
     const val STICKER_QUIZ_PASS_XP: Int = 10
@@ -52,7 +53,8 @@ object AppConfig {
      * Phase transitions / minute boundaries always flush immediately (docs/05).
      */
     const val SESSION_PERSIST_INTERVAL_SECONDS: Int = 45
-    const val QUIZ_REPEAT_WINDOW: Int = 20
+    /** Asked question IDs retained for de-duplication; matches local history cleanup. */
+    const val QUIZ_QUESTION_HISTORY_DAYS: Int = 30
     /** Parent dashboard: coalesce children-listener bursts before fan-out one-shot reads. */
     const val DASHBOARD_CHILDREN_DEBOUNCE_MS: Long = 350L
 
@@ -81,7 +83,6 @@ object AppConfig {
 
     /** Adaptive quiz, learning and lockout configuration (docs 06 & 08) */
     const val QUIZ_LOCKOUT_SECONDS: Int = 30
-    const val QUIZ_QUESTION_TIME_LIMIT_SECONDS: Int = 45
     const val QUIZ_PACK_LOW_THRESHOLD: Int = 12
     /** How many AI items to request per background generation (docs/08). */
     const val QUIZ_PACK_GENERATE_COUNT: Int = 12

@@ -12,7 +12,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.lifecycleScope
 import com.meritscreen.core.common.domain.SessionPhase
+import com.meritscreen.core.common.logging.AppLogger
 import com.meritscreen.core.ui.theme.MeritScreenTheme
 import com.meritscreen.feature.child.domain.ChildSessionController
 import dagger.hilt.android.AndroidEntryPoint
@@ -38,6 +38,8 @@ import javax.inject.Inject
 class ChildTimeLimitOverlayActivity : ComponentActivity() {
 
     @Inject lateinit var sessionController: ChildSessionController
+    @Inject lateinit var logger: AppLogger
+    private var isReturningHome = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,7 +64,6 @@ class ChildTimeLimitOverlayActivity : ComponentActivity() {
 
         setContent {
             MeritScreenTheme {
-                val session by sessionController.snapshot.collectAsState()
                 var showPin by remember { mutableStateOf(false) }
                 Box(
                     modifier = Modifier
@@ -79,13 +80,17 @@ class ChildTimeLimitOverlayActivity : ComponentActivity() {
                     } else {
                         ChildQuizScreen(
                             onFinished = {
-                                if (session.phase == SessionPhase.InBlock) {
-                                    finish()
+                                // Read the authoritative current state at click time; the
+                                // Compose-collected snapshot can lag behind the pass write.
+                                if (sessionController.phase() == SessionPhase.InBlock) {
+                                    finishOverlay()
                                 } else {
                                     returnToHome()
                                 }
                             },
                             onOpenPin = { showPin = true },
+                            onContinueToApp = ::continueToMonitoredApp,
+                            onGoHome = ::returnToHome,
                         )
                     }
                 }
@@ -93,14 +98,49 @@ class ChildTimeLimitOverlayActivity : ComponentActivity() {
         }
     }
 
+    private fun finishOverlay() {
+        if (isReturningHome || isFinishing) return
+        isReturningHome = true
+        finish()
+    }
+
+    private fun continueToMonitoredApp() {
+        if (isReturningHome || isFinishing) return
+        isReturningHome = true
+        val targetPackage = sessionController.snapshot.value.activePackage
+        logger.i("Quiz pass continue requested; phase=${sessionController.phase()}, target=${targetPackage ?: "none"}")
+        val launchIntent = targetPackage
+            ?.takeIf { it != packageName }
+            ?.let { packageManager.getLaunchIntentForPackage(it) }
+        if (launchIntent != null) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            runCatching { startActivity(launchIntent) }
+                .onFailure {
+                    logger.w("Could not launch monitored package $targetPackage after quiz pass", it)
+                }
+        } else {
+            logger.w("No launch intent available for monitored package ${targetPackage ?: "none"}")
+        }
+        // If Android no longer has a launch intent for the target, dismiss safely. The
+        // session stays InBlock and the foreground monitor will resume it on next launch.
+        finish()
+    }
+
     private fun returnToHome() {
+        if (isReturningHome || isFinishing) return
+        isReturningHome = true
         lifecycleScope.launch {
             runCatching { sessionController.returnHome() }
-            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val launcherIntent = packageManager.getLaunchIntentForPackage(packageName)
+            if (launcherIntent != null) {
+                launcherIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                startActivity(launcherIntent)
+            } else {
+                startActivity(Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
             }
-            startActivity(homeIntent)
             finish()
         }
     }

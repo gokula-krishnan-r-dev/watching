@@ -34,6 +34,7 @@ private fun SessionStateEntity.toDomain(): SessionSnapshot = SessionSnapshot(
     dayKey = dayKey,
     minutesUsedToday = minutesUsedToday,
     lastTickElapsedMs = lastTickElapsedMs,
+    quizGraceUntilElapsedMs = quizGraceUntilElapsedMs,
 )
 
 private fun SessionSnapshot.toEntity(): SessionStateEntity = SessionStateEntity(
@@ -49,4 +50,5 @@ private fun SessionSnapshot.toEntity(): SessionStateEntity = SessionStateEntity(
     dayKey = dayKey,
     minutesUsedToday = minutesUsedToday,
     lastTickElapsedMs = lastTickElapsedMs,
+    quizGraceUntilElapsedMs = quizGraceUntilElapsedMs,
 )

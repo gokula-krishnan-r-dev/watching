@@ -1,5 +1,6 @@
 package com.meritscreen.core.common.domain
 
+import com.meritscreen.core.common.config.AppConfig
 import kotlinx.serialization.Serializable
 
 /** When a quiz interrupt fires. Matches `policy/current.quizMode` in Firestore. */
@@ -7,7 +8,7 @@ import kotlinx.serialization.Serializable
 enum class QuizMode(val displayLabel: String, val description: String) {
     APP_BLOCK(
         displayLabel = "After each app block",
-        description = "Recommended. When YouTube's 30 minutes end, a short quiz unlocks another block.",
+        description = "Recommended. When an app's 15 minutes end, a short quiz unlocks another block.",
     ),
     EVERY_SESSION(
         displayLabel = "Every session",
@@ -75,7 +76,7 @@ data class ChildPolicy(
     val adaptiveDifficultyEnabled: Boolean = true,
     val showExplanations: Boolean = true,
     /** Play-block length before the cushion / quiz interrupt (minutes). Supports quick cushions (2–5). */
-    val defaultBlockMinutes: Int = 30,
+    val defaultBlockMinutes: Int = AppConfig.DEFAULT_BLOCK_MINUTES,
     /** Fail-lock / rest duration after a failed quiz (minutes). */
     val defaultCooldownMinutes: Int = 15,
     val emergencyApps: List<String> = listOf(
@@ -106,8 +107,8 @@ data class AppRule(
     val packageOrBundleId: String,
     val displayName: String = "",
     val allowed: Boolean = true,
-    val blockMinutes: Int = 30,
-    val grantOnPassMinutes: Int = 30,
+    val blockMinutes: Int = AppConfig.DEFAULT_BLOCK_MINUTES,
+    val grantOnPassMinutes: Int = AppConfig.DEFAULT_BLOCK_MINUTES,
     val cooldownMinutes: Int = 15,
     val isEmergency: Boolean = false,
 )

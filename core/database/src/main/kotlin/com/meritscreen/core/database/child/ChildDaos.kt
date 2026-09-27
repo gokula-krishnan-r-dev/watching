@@ -122,12 +122,20 @@ interface QuizDao {
     @Query(
         """
         SELECT questionId FROM recent_question
-        WHERE childId = :childId
+        WHERE childId = :childId AND answeredAtEpochMs >= :afterEpochMs
         ORDER BY answeredAtEpochMs DESC
-        LIMIT :limit
         """,
     )
-    suspend fun recentQuestionIds(childId: String, limit: Int): List<String>
+    suspend fun recentQuestionIds(childId: String, afterEpochMs: Long): List<String>
+
+    @Query(
+        """
+        SELECT DISTINCT q.prompt FROM recent_question r
+        INNER JOIN quiz_item q ON q.id = r.questionId
+        WHERE r.childId = :childId AND r.answeredAtEpochMs >= :afterEpochMs
+        """,
+    )
+    suspend fun recentQuestionPrompts(childId: String, afterEpochMs: Long): List<String>
 
     @Query("DELETE FROM recent_question WHERE childId = :childId AND answeredAtEpochMs < :beforeEpochMs")
     suspend fun deleteRecentBefore(childId: String, beforeEpochMs: Long)

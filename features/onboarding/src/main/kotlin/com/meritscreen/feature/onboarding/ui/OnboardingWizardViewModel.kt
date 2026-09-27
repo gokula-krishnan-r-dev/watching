@@ -3,6 +3,7 @@ package com.meritscreen.feature.onboarding.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
+import com.meritscreen.core.common.config.AppConfig
 import com.meritscreen.core.common.dispatchers.AppDispatchers
 import com.meritscreen.core.common.domain.AgeBand
 import com.meritscreen.core.common.domain.AppRule
@@ -99,15 +100,20 @@ class OnboardingWizardViewModel @Inject constructor(
         _uiState.update { current ->
             val updatedRules = when (presetName) {
                 "Balanced" -> current.appRules.map { rule ->
-                    if (rule.appId == "roblox") rule.copy(allowed = false, blockMinutes = 15)
-                    else rule.copy(allowed = true, blockMinutes = if (rule.appId == "yt_kids") 30 else 0)
+                    if (rule.appId == "roblox") rule.withBlockDuration(allowed = false, minutes = 15)
+                    else rule.withBlockDuration(
+                        allowed = true,
+                        minutes = if (rule.appId == "yt_kids") 30 else 0,
+                    )
                 }
                 "Strict" -> current.appRules.map { rule ->
-                    if (rule.appId == "duo_abc" || rule.appId == "khan_kids") rule.copy(allowed = true, blockMinutes = 0)
-                    else rule.copy(allowed = false, blockMinutes = 0)
+                    rule.withBlockDuration(
+                        allowed = rule.appId == "duo_abc" || rule.appId == "khan_kids",
+                        minutes = 0,
+                    )
                 }
                 "Weekend" -> current.appRules.map { rule ->
-                    rule.copy(allowed = true, blockMinutes = 0)
+                    rule.withBlockDuration(allowed = true, minutes = 0)
                 }
                 else -> current.appRules
             }
@@ -165,3 +171,9 @@ class OnboardingWizardViewModel @Inject constructor(
         }
     }
 }
+
+private fun AppRule.withBlockDuration(allowed: Boolean, minutes: Int): AppRule = copy(
+    allowed = allowed,
+    blockMinutes = minutes,
+    grantOnPassMinutes = minutes.takeIf { it > 0 } ?: AppConfig.DEFAULT_BLOCK_MINUTES,
+)

@@ -159,7 +159,10 @@ object SessionEngine {
             return state.copy(lastTickElapsedMs = nowElapsedMs)
         }
 
-        val blockMinutes = rule.blockMinutes.coerceIn(1, 240)
+        // Older/onboarding rules may persist 0 to mean "use the child-wide default".
+        // Coercing that to one minute made those apps quiz immediately and ignored policy.
+        val blockMinutes = (rule.blockMinutes.takeIf { it > 0 } ?: policy.defaultBlockMinutes)
+            .coerceIn(1, 240)
         return when (policy.quizMode) {
             QuizMode.EVERY_SESSION -> state.copy(
                 phase = SessionPhase.QuizDue,
@@ -276,6 +279,23 @@ object SessionEngine {
             activeAppId = null,
             blockStartedElapsedMs = null,
             minutesAccruedInBlock = 0f,
+            lastTickElapsedMs = nowElapsedMs,
+        )
+    }
+
+    /** Clears a legacy session that was incorrectly started for Home or Android system UI. */
+    fun clearUntrackedSurfaceSession(snapshot: SessionSnapshot, nowElapsedMs: Long): SessionSnapshot {
+        if (snapshot.phase == SessionPhase.Idle) return snapshot
+        val wronglyAccruedMinutes = snapshot.minutesAccruedInBlock.toInt().coerceAtLeast(0)
+        return snapshot.copy(
+            phase = SessionPhase.Idle,
+            activePackage = null,
+            activeAppId = null,
+            blockStartedElapsedMs = null,
+            minutesAccruedInBlock = 0f,
+            deviceShieldedUntilElapsedMs = null,
+            quizGraceUntilElapsedMs = null,
+            minutesUsedToday = (snapshot.minutesUsedToday - wronglyAccruedMinutes).coerceAtLeast(0),
             lastTickElapsedMs = nowElapsedMs,
         )
     }

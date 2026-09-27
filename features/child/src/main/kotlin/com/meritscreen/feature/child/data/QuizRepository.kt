@@ -15,6 +15,7 @@ import com.meritscreen.core.database.child.SkillStateEntity
 import com.meritscreen.feature.child.domain.QuizChoice
 import com.meritscreen.feature.child.domain.QuizQuestion
 import com.meritscreen.feature.child.domain.TopicSkill
+import com.meritscreen.feature.child.domain.AdaptiveQuizEngine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -106,7 +107,11 @@ class QuizRepository @Inject constructor(
     suspend fun questionsFor(ageBand: AgeBand, language: String = "en"): List<QuizQuestion> =
         withContext(dispatchers.io) {
             quizDao.listForAgeBand(ageBand.name, language).mapNotNull { it.toDomain(json) }
-                .ifEmpty { quizDao.listForAgeBand(ageBand.name, "en").mapNotNull { it.toDomain(json) } }
+                .distinctBy { AdaptiveQuizEngine.promptHistoryKey(it.prompt) }
+                .ifEmpty {
+                    quizDao.listForAgeBand(ageBand.name, "en").mapNotNull { it.toDomain(json) }
+                        .distinctBy { AdaptiveQuizEngine.promptHistoryKey(it.prompt) }
+                }
         }
 
     suspend fun skills(childId: String): Map<String, TopicSkill> = withContext(dispatchers.io) {
@@ -154,7 +159,11 @@ class QuizRepository @Inject constructor(
     }
 
     suspend fun recentIds(childId: String): Set<String> = withContext(dispatchers.io) {
-        quizDao.recentQuestionIds(childId, AppConfig.QUIZ_REPEAT_WINDOW).toSet()
+        val historyStart = System.currentTimeMillis() -
+            AppConfig.QUIZ_QUESTION_HISTORY_DAYS * 24L * 60 * 60 * 1_000
+        quizDao.recentQuestionIds(childId, historyStart).toSet() +
+            quizDao.recentQuestionPrompts(childId, historyStart)
+                .map(AdaptiveQuizEngine::promptHistoryKey)
     }
 
     suspend fun markAsked(childId: String, questionId: String) = withContext(dispatchers.io) {
@@ -167,7 +176,7 @@ class QuizRepository @Inject constructor(
         )
         quizDao.deleteRecentBefore(
             childId,
-            System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000,
+            System.currentTimeMillis() - AppConfig.QUIZ_QUESTION_HISTORY_DAYS * 24L * 60 * 60 * 1_000,
         )
     }
 

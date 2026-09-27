@@ -89,6 +89,7 @@ fun defaultOnboardingAppRules(): List<AppRule> = listOf(
         displayName = "YouTube Kids",
         allowed = true,
         blockMinutes = 30,
+        grantOnPassMinutes = 30,
     ),
     AppRule(
         appId = "scratch_jr",

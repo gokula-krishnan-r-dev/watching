@@ -62,6 +62,38 @@ class AdaptiveQuizEngineTest {
     }
 
     @Test
+    fun `pickNext excludes same wording even when regenerated with a different id`() {
+        val repeated = sampleQuestion.copy(id = "new-ai-id", prompt = "What is 48 ÷ 6?")
+        val fresh = sampleQuestion.copy(id = "fresh", prompt = "How many groups are in 48 divided by 6?")
+        val picked = AdaptiveQuizEngine.pickNext(
+            bank = listOf(repeated, fresh),
+            skills = emptyMap(),
+            recentIds = setOf(AdaptiveQuizEngine.promptHistoryKey(sampleQuestion.prompt)),
+            usedInSession = emptySet(),
+            lastWrongConceptId = null,
+            preferredLevel = 2,
+        )
+
+        assertEquals("fresh", picked?.id)
+    }
+
+    @Test
+    fun `pickNext never repeats a question inside the same quiz`() {
+        val onlyQuestion = sampleQuestion.copy(id = "only")
+
+        val picked = AdaptiveQuizEngine.pickNext(
+            bank = listOf(onlyQuestion),
+            skills = emptyMap(),
+            recentIds = emptySet(),
+            usedInSession = setOf("only"),
+            lastWrongConceptId = null,
+            preferredLevel = 2,
+        )
+
+        assertEquals(null, picked)
+    }
+
+    @Test
     fun `gradeAnswer correctly awards seeds, increments streak, and updates mastered concepts`() {
         val initialSkill = TopicSkill(
             topic = "Math",

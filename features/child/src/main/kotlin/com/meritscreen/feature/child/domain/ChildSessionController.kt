@@ -35,7 +35,23 @@ class ChildSessionController @Inject constructor(
     suspend fun hydrate() {
         mutex.withLock {
             val loaded = sessionRepository.get()
-            val next = SessionEngine.expireShieldIfNeeded(loaded, now())
+            val nowElapsedMs = now()
+            val clockReset = loaded.lastTickElapsedMs?.let { it > nowElapsedMs } == true
+            val restored = if (clockReset) {
+                val remainingBlockMs = ((loaded.blockDurationMinutes - loaded.minutesAccruedInBlock)
+                    .coerceAtLeast(0f) * 60_000f).toLong()
+                loaded.copy(
+                    lastTickElapsedMs = nowElapsedMs,
+                    blockStartedElapsedMs = if (loaded.phase == SessionPhase.InBlock) nowElapsedMs else null,
+                    deviceShieldedUntilElapsedMs = if (loaded.phase == SessionPhase.Shielded) {
+                        nowElapsedMs + loaded.cooldownMinutes.coerceAtLeast(1) * 60_000L
+                    } else loaded.deviceShieldedUntilElapsedMs,
+                    quizGraceUntilElapsedMs = loaded.quizGraceUntilElapsedMs?.let { nowElapsedMs + remainingBlockMs },
+                )
+            } else {
+                loaded
+            }
+            val next = SessionEngine.expireShieldIfNeeded(restored, nowElapsedMs)
             _snapshot.value = next
             persist(next, force = true)
         }
@@ -112,6 +128,14 @@ class ChildSessionController @Inject constructor(
             policyRepository.getPolicy(pairingStore.get()?.childId ?: return _snapshot.value),
             isAppActive = false,
         )
+        _snapshot.value = next
+        persist(next, force = true)
+        next
+    }
+
+    /** Repairs session state created by older builds while Home/system UI was mis-tracked. */
+    suspend fun clearUntrackedSurfaceSession(): SessionSnapshot = mutex.withLock {
+        val next = SessionEngine.clearUntrackedSurfaceSession(_snapshot.value, now())
         _snapshot.value = next
         persist(next, force = true)
         next

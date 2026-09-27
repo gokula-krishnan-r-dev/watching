@@ -2,6 +2,8 @@ package com.meritscreen.core.database
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.meritscreen.core.database.child.ChildStickerDao
 import com.meritscreen.core.database.child.ChildPolicyDao
 import com.meritscreen.core.database.child.PolicySyncStateDao
@@ -21,6 +23,20 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
+    private val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE session_state ADD COLUMN quizGraceUntilElapsedMs INTEGER")
+        }
+    }
+    private val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_recent_question_childId_answeredAtEpochMs` " +
+                    "ON `recent_question` (`childId`, `answeredAtEpochMs`)",
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MeritScreenDatabase {
@@ -29,6 +45,8 @@ object DatabaseModule {
             MeritScreenDatabase::class.java,
             "meritscreen.db",
         )
+            .addMigrations(MIGRATION_9_10)
+            .addMigrations(MIGRATION_10_11)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
     }

@@ -131,9 +131,13 @@ class ChildQuizViewModelTest {
             avatarId = "rabbit",
             language = "en",
         )
-        coEvery { quizRepository.questionsFor(any(), any()) } returns listOf(sampleQuestion)
+        coEvery { quizRepository.questionsFor(any(), any()) } returns listOf(
+            sampleQuestion,
+            sampleQuestion.copy(id = "test_q2", prompt = "How many groups are in 48 divided by 6?"),
+            sampleQuestion.copy(id = "test_q3", prompt = "What is half of 16?"),
+        )
         coEvery { quizRepository.skills("child_123") } returns emptyMap()
-        coEvery { quizRepository.recentIds("child_123") } returns emptySet()
+        coEvery { quizRepository.recentIds("child_123") } returns setOf("test_q2", "test_q3")
         every { sessionController.snapshot } returns MutableStateFlow(SessionSnapshot())
         every { networkMonitor.isCurrentlyOnline() } returns true
         coEvery { quizAttemptRepository.record(any(), any(), any(), any(), any(), any()) } returns "attempt_1"
@@ -284,6 +288,9 @@ class ChildQuizViewModelTest {
         val collectJob = launch(testDispatcher) { viewModel.uiState.collect() }
         testScheduler.runCurrent()
 
+        // Thinking time is unlimited: an invisible question timeout must never turn a
+        // correct answer into a failed quiz/rest period.
+        testScheduler.advanceTimeBy(60_000L)
         viewModel.answer("c2")
         testScheduler.runCurrent()
 
@@ -321,6 +328,7 @@ class ChildQuizViewModelTest {
         assertTrue(completed.passed)
         assertEquals(30, completed.unlockedMinutes)
         coVerify { sessionController.onQuizPassed(any()) }
+        coVerify(exactly = 3) { quizRepository.markAsked("child_123", any()) }
 
         collectJob.cancel()
     }

@@ -2,7 +2,6 @@ package com.meritscreen.feature.child
 
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
-import androidx.navigation.hasRoute
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
 import androidx.navigation.toRoute
@@ -26,9 +25,7 @@ fun NavGraphBuilder.childGraph(
     onResetRole: () -> Unit,
 ) {
     fun openQuizOnce() {
-        if (navController.currentDestination?.hasRoute<ChildQuizRoute>() != true) {
-            navController.navigate(ChildQuizRoute) { launchSingleTop = true }
-        }
+        navController.navigate(ChildQuizRoute) { launchSingleTop = true }
     }
 
     navigation<ChildRoute>(startDestination = ChildHomeRoute) {

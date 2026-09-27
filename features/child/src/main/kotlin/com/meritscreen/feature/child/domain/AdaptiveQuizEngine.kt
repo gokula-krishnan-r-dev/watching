@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.random.Random
+import java.util.Locale
 
 @Serializable
 data class QuizChoice(
@@ -109,8 +110,14 @@ object AdaptiveQuizEngine {
         random: Random = Random.Default,
     ): QuizQuestion? {
         if (bank.isEmpty()) return null
-        val unused = bank.filter { it.id !in usedInSession && it.id !in recentIds }
-        val pool = unused.ifEmpty { bank.filter { it.id !in usedInSession }.ifEmpty { bank } }
+        val freshUnused = bank.filter {
+            it.id !in usedInSession && it.id !in recentIds && promptHistoryKey(it.prompt) !in recentIds
+        }
+        // If the history window covers the entire bank, allow older questions again, but
+        // never repeat one inside the same quiz. A tiny bank returns no candidate so the
+        // caller can show a content-sync error instead of repeating the same question.
+        val pool = freshUnused.ifEmpty { bank.filter { it.id !in usedInSession } }
+        if (pool.isEmpty()) return null
 
         if (lastWrongConceptId != null) {
             val easier = pool.filter {
@@ -218,4 +225,8 @@ object AdaptiveQuizEngine {
     }
 
     fun questionsPerQuiz(configured: Int): Int = configured.coerceIn(3, 5)
+
+    /** Stable history key so identical prompts from regenerated packs are still excluded. */
+    fun promptHistoryKey(prompt: String): String =
+        "prompt:${prompt.lowercase(Locale.ROOT).filter(Char::isLetterOrDigit)}"
 }

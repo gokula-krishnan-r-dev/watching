@@ -293,7 +293,11 @@ class AllowlistViewModel @Inject constructor(
     fun updateBlockMinutes(rule: AppRule, minutes: Int) {
         viewModelScope.launch {
             val familyId = parentSessionRepository.current()?.familyId ?: return@launch
-            parentControlStore.upsertAppRule(familyId, childId, rule.copy(blockMinutes = minutes))
+            parentControlStore.upsertAppRule(
+                familyId,
+                childId,
+                rule.copy(blockMinutes = minutes, grantOnPassMinutes = minutes),
+            )
             refresh()
         }
     }
@@ -1093,7 +1097,7 @@ private fun AppRuleCard(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            listOf(15, 30, 45, 60).forEach { mins ->
+                            listOf(15, 30, 45, 50, 60).forEach { mins ->
                                 val isSelected = rule.blockMinutes == mins
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),

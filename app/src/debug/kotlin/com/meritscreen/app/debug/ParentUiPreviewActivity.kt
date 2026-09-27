@@ -1137,7 +1137,6 @@ fun ParentUiPreviewRoot(
                                 index = 1,
                                 total = 3,
                                 question = mockQuizQuestion,
-                                secondsRemaining = 42,
                             ),
                         )
                     }
@@ -1352,4 +1351,3 @@ fun ParentUiPreviewRoot(
         }
     }
 }
-

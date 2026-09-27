@@ -285,11 +285,7 @@ class OnboardingAllowlistViewModel @Inject constructor(
         packageOrBundleId = row.packageName,
         displayName = row.label,
         allowed = row.isAllowed,
-        blockMinutes = if (row.category == AppCategoryFilter.ENTERTAINMENT) {
-            AppConfig.DEFAULT_BLOCK_MINUTES
-        } else {
-            0
-        },
+        blockMinutes = AppConfig.DEFAULT_BLOCK_MINUTES,
         grantOnPassMinutes = AppConfig.DEFAULT_BLOCK_MINUTES,
         cooldownMinutes = AppConfig.DEFAULT_COOLDOWN_MINUTES,
         isEmergency = row.category == AppCategoryFilter.SYSTEM_LOCKED,

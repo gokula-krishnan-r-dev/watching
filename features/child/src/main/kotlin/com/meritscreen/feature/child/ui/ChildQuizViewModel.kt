@@ -55,6 +55,7 @@ sealed interface QuizUiStep {
     data class Completed(
         val passed: Boolean,
         val unlockedMinutes: Int,
+        val targetPackage: String? = null,
         val result: QuizSessionResult? = null,
         val stickerTitle: String? = null,
         val stickerEmoji: String? = null,
@@ -66,7 +67,6 @@ sealed interface QuizUiStep {
         val index: Int,
         val total: Int,
         val question: QuizQuestion,
-        val secondsRemaining: Int = AppConfig.QUIZ_QUESTION_TIME_LIMIT_SECONDS,
         val evaluatedChoiceId: String? = null,
         val isCorrect: Boolean? = null,
         val whyWrongText: String? = null,
@@ -148,14 +148,14 @@ class ChildQuizViewModel @Inject constructor(
     private var ageBand = AgeBand.AGE_7_TO_9
     private var showExplanations = true
     private var rewardsEnabled = true
-    private var extraMinutesOnPass = 30
+    private var extraMinutesOnPass = 0
     private var currentPolicy: ChildPolicy? = null
     private var completionStarted = false
 
     private var questionStartTimeMs: Long = 0L
     private var lockoutCountdownJob: Job? = null
-    private var questionTimerJob: Job? = null
     private var cooldownTickerJob: Job? = null
+    private var questionPersistenceJob: Job? = null
 
     init {
         viewModelScope.launch { start() }
@@ -177,7 +177,10 @@ class ChildQuizViewModel @Inject constructor(
         passPercent = policy.passScorePercent
         showExplanations = policy.showExplanations
         rewardsEnabled = policy.rewardsEnabled
-        extraMinutesOnPass = if (policy.extraMinutesOnPass > 0) policy.extraMinutesOnPass else 30
+        // Keep quiz history aligned with the authoritative session policy. A zero bonus is
+        // meaningful; silently substituting 30 here made history claim time was granted when
+        // SessionEngine had only opened the app rule's configured block.
+        extraMinutesOnPass = policy.extraMinutesOnPass.coerceAtLeast(0)
         val session = sessionController.snapshot.value
         activeRule = policyRepository.listAppRules(childId)
             .firstOrNull { it.appId == session.activeAppId || it.packageOrBundleId == session.activePackage }
@@ -265,6 +268,8 @@ class ChildQuizViewModel @Inject constructor(
     }
 
     fun onNurseryComplete() {
+        if (completionStarted) return
+        completionStarted = true
         viewModelScope.launch {
             val policy = currentPolicy
             val snapshot = sessionController.onQuizPassed(activeRule)
@@ -285,6 +290,7 @@ class ChildQuizViewModel @Inject constructor(
                     step = QuizUiStep.Completed(
                         passed = true,
                         unlockedMinutes = unlockedMinutes,
+                        targetPackage = sessionController.snapshot.value.activePackage,
                         result = QuizSessionResult(
                             passed = true,
                             correctCount = 0,
@@ -328,17 +334,30 @@ class ChildQuizViewModel @Inject constructor(
                 questions += q
                 used += q.id
             }
-            if (questions.isEmpty()) {
-                _uiState.value = UiState.Error(AppError.NotFound("No quiz questions available."))
+            if (questions.size < total) {
+                _uiState.value = UiState.Error(
+                    AppError.NotFound(
+                        "Not enough distinct quiz questions are available yet. Try again after the quiz pack finishes syncing.",
+                    ),
+                )
                 return@launch
             }
-            total = questions.size
             emitQuestion()
         }
     }
 
+    /** Update the exclusion set immediately, then persist answered questions in order. */
+    private fun persistAnsweredQuestion(question: QuizQuestion, skill: TopicSkill) {
+        recent = recent + question.id + AdaptiveQuizEngine.promptHistoryKey(question.prompt)
+        val previousWrite = questionPersistenceJob
+        questionPersistenceJob = viewModelScope.launch {
+            previousWrite?.join()
+            quizRepository.markAsked(childId, question.id)
+            quizRepository.saveTopicSkill(childId, skill)
+        }
+    }
+
     fun answer(choiceId: String) {
-        questionTimerJob?.cancel()
         val visible = _uiState.value as? UiState.Success ?: return
         val visibleQuestion = visible.data.step as? QuizUiStep.Question ?: return
         if (visibleQuestion.evaluatedChoiceId != null || completionStarted) return
@@ -356,10 +375,7 @@ class ChildQuizViewModel @Inject constructor(
             lastWrongConcept = current.conceptId
         }
 
-        viewModelScope.launch {
-            quizRepository.saveTopicSkill(childId, updated)
-            quizRepository.markAsked(childId, current.id)
-        }
+        persistAnsweredQuestion(current, updated)
 
         val correctChoice = current.choices.firstOrNull { it.correct }
         val correctText = correctChoice?.text?.ifBlank { null }
@@ -373,7 +389,6 @@ class ChildQuizViewModel @Inject constructor(
                         index = index + 1,
                         total = total,
                         question = current,
-                        secondsRemaining = 0,
                         evaluatedChoiceId = choiceId,
                         isCorrect = true,
                         whyWrongText = null,
@@ -399,7 +414,6 @@ class ChildQuizViewModel @Inject constructor(
                         index = index + 1,
                         total = total,
                         question = current,
-                        secondsRemaining = 0,
                         evaluatedChoiceId = choiceId,
                         isCorrect = false,
                         whyWrongText = whyWrong,
@@ -483,66 +497,6 @@ class ChildQuizViewModel @Inject constructor(
         }
     }
 
-    fun onQuestionTimeout() {
-        questionTimerJob?.cancel()
-        val visible = _uiState.value as? UiState.Success ?: return
-        val visibleQuestion = visible.data.step as? QuizUiStep.Question ?: return
-        if (visibleQuestion.evaluatedChoiceId != null || completionStarted) return
-        val current = questions.getOrNull(index) ?: return
-        val skill = skills[current.topic] ?: TopicSkill(current.topic)
-        lastWrongConcept = current.conceptId
-
-        val feedback = QuizAnswerFeedback(
-            correct = false,
-            resultLine = "Time’s up — let’s look together",
-            whyLine = "Thinking carefully is great! Let’s review this question together.",
-            conceptLine = current.conceptExplainer,
-            nextLevel = (skill.level - 1).coerceAtLeast(1),
-        )
-        val updated = skill.copy(
-            level = feedback.nextLevel,
-            streakCorrect = 0,
-            weakConcepts = skill.weakConcepts + current.conceptId,
-            totalAttempts = skill.totalAttempts + 1,
-        )
-        skills[current.topic] = updated
-        preferredLevel = updated.level
-
-        viewModelScope.launch {
-            quizRepository.saveTopicSkill(childId, updated)
-            quizRepository.markAsked(childId, current.id)
-        }
-
-        val correctChoice = current.choices.firstOrNull { it.correct }
-        val correctText = correctChoice?.text?.ifBlank { null }
-            ?: correctChoice?.imageTag?.replace('_', ' ')?.replaceFirstChar { it.uppercase() }
-            ?: "Correct Answer"
-        val initialResource = learningResourceRepository.getStaticBaseline(
-            conceptId = current.conceptId,
-            topic = current.topic,
-            conceptTitle = current.conceptTitle,
-        )
-
-        _uiState.value = UiState.Success(
-            QuizUi(
-                step = QuizUiStep.Question(
-                    index = index + 1,
-                    total = total,
-                    question = current,
-                    secondsRemaining = 0,
-                    evaluatedChoiceId = "",
-                    isCorrect = false,
-                    whyWrongText = "Time was up! Take a moment to review this idea without any rush.",
-                    correctChoiceText = correctText,
-                    resource = initialResource,
-                ),
-                appLabel = appLabel,
-                childName = childName,
-                ageBand = ageBand,
-            ),
-        )
-    }
-
     private fun startLockoutTeaching(current: QuizQuestion, feedback: QuizAnswerFeedback) {
         val correctChoice = current.choices.firstOrNull { it.correct }
         val correctText = correctChoice?.text?.ifBlank { null }
@@ -613,43 +567,15 @@ class ChildQuizViewModel @Inject constructor(
         _uiState.value = UiState.Success(
             QuizUi(QuizUiStep.Question(index + 1, total, q), appLabel, childName, ageBand),
         )
-
-        // Question countdown timer
-        questionTimerJob?.cancel()
-        questionTimerJob = viewModelScope.launch {
-            var left = if (ageBand == AgeBand.AGE_3_TO_6) 60 else AppConfig.QUIZ_QUESTION_TIME_LIMIT_SECONDS
-            while (left > 0) {
-                delay(1000L)
-                left--
-                val current = _uiState.value
-                if (current is UiState.Success && current.data.step is QuizUiStep.Question) {
-                    val qStep = current.data.step as QuizUiStep.Question
-                    if (qStep.evaluatedChoiceId != null) break
-                    _uiState.value = UiState.Success(
-                        current.data.copy(
-                            step = qStep.copy(secondsRemaining = left),
-                        ),
-                    )
-                } else {
-                    break
-                }
-            }
-            val current = _uiState.value
-            if (left == 0 && current is UiState.Success && current.data.step is QuizUiStep.Question) {
-                val qStep = current.data.step as QuizUiStep.Question
-                if (qStep.evaluatedChoiceId == null) {
-                    onQuestionTimeout()
-                }
-            }
-        }
     }
 
     private fun finish() {
         if (completionStarted) return
         completionStarted = true
-        questionTimerJob?.cancel()
         lockoutCountdownJob?.cancel()
         viewModelScope.launch {
+            // Persist exclusions before showing a pass result that can pop this ViewModel.
+            questionPersistenceJob?.join()
             val result = AdaptiveQuizEngine.finalize(correctCount, total, passPercent)
             val policy = currentPolicy
             var extraMinutesGranted = if (result.passed && rewardsEnabled) extraMinutesOnPass else 0
@@ -686,6 +612,8 @@ class ChildQuizViewModel @Inject constructor(
                         step = QuizUiStep.Completed(
                             passed = true,
                             unlockedMinutes = unlockedMinutes,
+                            targetPackage = activeRule?.packageOrBundleId
+                                ?: sessionController.snapshot.value.activePackage,
                             result = result,
                             stickerTitle = award?.unlocked?.title,
                             stickerEmoji = award?.unlocked?.emoji,
@@ -764,7 +692,6 @@ class ChildQuizViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        questionTimerJob?.cancel()
         lockoutCountdownJob?.cancel()
         cooldownTickerJob?.cancel()
     }

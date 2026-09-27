@@ -1,6 +1,7 @@
 package com.meritscreen.core.database.child
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "child_policy")
@@ -71,6 +72,7 @@ data class SessionStateEntity(
     val lastTickElapsedMs: Long?,
     val quizLockEndsAtElapsedMs: Long? = null,
     val quizLockQuestionId: String? = null,
+    val quizGraceUntilElapsedMs: Long? = null,
 )
 
 @Entity(tableName = "quiz_item")
@@ -122,7 +124,7 @@ data class SkillStateEntity(
     val syncedAtEpochMs: Long? = null,
 )
 
-@Entity(tableName = "recent_question")
+@Entity(tableName = "recent_question", indices = [Index(value = ["childId", "answeredAtEpochMs"])])
 data class RecentQuestionEntity(
     @PrimaryKey(autoGenerate = true) val rowId: Long = 0,
     val childId: String,

@@ -116,6 +116,7 @@ class ChildPinViewModel @Inject constructor(
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
     fun submit(pin: String, endFailLockOnUnlock: Boolean) {
+        if (_busy.value || _unlocked.value) return
         viewModelScope.launch {
             _busy.value = true
             when (val result = verifyParentPin(pin)) {

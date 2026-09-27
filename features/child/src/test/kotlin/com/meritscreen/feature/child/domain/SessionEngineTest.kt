@@ -30,6 +30,22 @@ class SessionEngineTest {
     }
 
     @Test
+    fun newlyAllowedAppsUseThe15MinuteDefault() {
+        val app = AppRule(appId = "calendar", packageOrBundleId = "com.example.calendar")
+        val next = SessionEngine.openApp(SessionSnapshot(), 1_000L, app, ChildPolicy())
+
+        assertEquals(15, next.blockDurationMinutes)
+    }
+
+    @Test
+    fun legacyZeroMinuteRuleUsesTheChildDefault() {
+        val app = AppRule(appId = "calendar", packageOrBundleId = "com.example.calendar", blockMinutes = 0)
+        val next = SessionEngine.openApp(SessionSnapshot(), 1_000L, app, ChildPolicy(defaultBlockMinutes = 20))
+
+        assertEquals(20, next.blockDurationMinutes)
+    }
+
+    @Test
     fun tick_reachesQuizDue_afterBlockMinutes() {
         val started = SessionEngine.openApp(SessionSnapshot(), 0L, youtube, ChildPolicy())
         val after = SessionEngine.tick(started, nowElapsedMs = 30 * 60_000L + 1, ChildPolicy())
@@ -61,6 +77,22 @@ class SessionEngineTest {
         val passed = SessionEngine.onQuizPassed(quizDue, 5_000L, youtube, ChildPolicy())
         assertEquals(SessionPhase.InBlock, passed.phase)
         assertEquals(0f, passed.minutesAccruedInBlock, 0.01f)
+    }
+
+    @Test
+    fun quizPass_restartsAtTheParentConfiguredGrantDuration() {
+        val due = SessionSnapshot(
+            phase = SessionPhase.QuizDue,
+            activePackage = youtube.packageOrBundleId,
+            activeAppId = youtube.appId,
+            minutesAccruedInBlock = 30f,
+        )
+        val configuredRule = youtube.copy(blockMinutes = 25, grantOnPassMinutes = 25)
+        val passed = SessionEngine.onQuizPassed(due, 5_000L, configuredRule, ChildPolicy(extraMinutesOnPass = 0))
+
+        assertEquals(25, passed.blockDurationMinutes)
+        assertEquals(0f, passed.minutesAccruedInBlock, 0.01f)
+        assertEquals(5_000L, passed.blockStartedElapsedMs)
     }
 
     @Test
@@ -145,6 +177,50 @@ class SessionEngineTest {
     }
 
     @Test
+    fun staleLauncherSessionFromOlderBuildIsClearedWithoutChargingDailyUsage() {
+        val stale = SessionSnapshot(
+            phase = SessionPhase.QuizDue,
+            activePackage = "com.google.android.apps.nexuslauncher",
+            activeAppId = "com_google_android_apps_nexuslauncher",
+            blockDurationMinutes = 20,
+            minutesAccruedInBlock = 15.4f,
+            minutesUsedToday = 32,
+            lastTickElapsedMs = 10_000L,
+        )
+
+        val repaired = SessionEngine.clearUntrackedSurfaceSession(stale, nowElapsedMs = 20_000L)
+
+        assertEquals(SessionPhase.Idle, repaired.phase)
+        assertEquals(null, repaired.activePackage)
+        assertEquals(null, repaired.activeAppId)
+        assertEquals(0f, repaired.minutesAccruedInBlock, 0.01f)
+        assertEquals(17, repaired.minutesUsedToday)
+        assertEquals(20_000L, repaired.lastTickElapsedMs)
+    }
+
+    @Test
+    fun quizPassAtDailyCeilingKeepsGrantedBlockActive() {
+        val policy = ChildPolicy(dailyCeilingMinutes = 5)
+        val due = SessionSnapshot(
+            phase = SessionPhase.QuizDue,
+            activePackage = youtube.packageOrBundleId,
+            activeAppId = youtube.appId,
+            minutesUsedToday = 5,
+        )
+        val granted = SessionEngine.onQuizPassed(due, 1_000L, youtube, policy)
+        val afterOneMinute = SessionEngine.tick(
+            granted,
+            nowElapsedMs = 61_000L,
+            policy = policy,
+            isAppActive = true,
+        )
+
+        assertEquals(SessionPhase.InBlock, afterOneMinute.phase)
+        assertEquals(6, afterOneMinute.minutesUsedToday)
+        assertEquals(29, afterOneMinute.remainingBlockMinutes())
+    }
+
+    @Test
     fun pausedPolicy_blocksNonEmergencyLaunch() {
         val policy = ChildPolicy(paused = true)
         assertFalse(SessionEngine.canLaunch(SessionSnapshot(), youtube, policy))
@@ -181,7 +257,7 @@ class SessionEngineTest {
     }
 
     @Test
-    fun tick_inIdle_accruesScreenTimeMinuteByMinute() {
+    fun tick_inIdle_doesNotAccrueAppUsage() {
         var state = SessionSnapshot(
             phase = SessionPhase.Idle,
             minutesUsedToday = 0,
@@ -189,13 +265,13 @@ class SessionEngineTest {
         )
         val policy = ChildPolicy()
 
-        // 60 ticks of 1000ms each = 60 seconds (1 minute of active screen time)
+        // Launcher time is not app usage; only an active app block is charged.
         for (sec in 1..60) {
             state = SessionEngine.tick(state, nowElapsedMs = sec * 1_000L, policy)
         }
 
         assertEquals(SessionPhase.Idle, state.phase)
-        assertEquals(1, state.minutesUsedToday)
-        assertEquals(119, state.dailyRemainingMinutes(policy)) // 120 - 1 = 119
+        assertEquals(0, state.minutesUsedToday)
+        assertEquals(120, state.dailyRemainingMinutes(policy))
     }
 }

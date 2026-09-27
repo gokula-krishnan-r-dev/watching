@@ -96,7 +96,7 @@ flowchart TD
   D --> E{Android?}
   E -->|Yes| F[Ask to set MeritScreen as Home / default launcher]
   E -->|No iOS| G[Ask for Screen Time / Family Controls permission]
-  F --> H[Grant Usage Access if needed]
+  F --> H[Grant Usage Access and Display over other apps]
   G --> I[Download first quiz pack offline]
   H --> I
   I --> J[Child home: approved apps only]
@@ -110,7 +110,7 @@ flowchart TD
 
 1. System prompt: **Set MeritScreen as Home app**.
 2. Parent confirms. From now on, Home / unlock opens MeritScreen.
-3. Optional but recommended: Usage Access so we can report time even if an app was opened from elsewhere.
+3. Required for automatic app timers and quiz interrupts: grant **Usage Access** and **Display over other apps** in Android Settings. MeritScreen shows a setup card on Child Home if either permission is missing.
 4. Parent PIN is required to:
   - switch back to the stock launcher
   - uninstall MeritScreen (we cannot fully block uninstall without Device Owner / MDM; we **discourage** it and detect if the app is no longer default Home)
@@ -221,5 +221,4 @@ flowchart TB
 | Parent skips “set as default launcher” | Child home still works inside the app, but stock Home is reachable — show a persistent “Finish setup” card |
 | Wrong age band                         | Parent can change it later; next quiz pack regenerates                                                     |
 | Second child                           | Repeat “Add child” + pair a second device; same parent account                                             |
-
 

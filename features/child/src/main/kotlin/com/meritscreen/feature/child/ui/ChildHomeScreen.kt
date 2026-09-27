@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import android.graphics.Bitmap
 import android.provider.MediaStore
 import android.speech.RecognizerIntent
@@ -130,6 +131,7 @@ import com.meritscreen.core.ui.theme.MeritColors
 import com.meritscreen.core.ui.theme.MeritSpacing
 import com.meritscreen.feature.applications.AppIconLoader
 import com.meritscreen.feature.launcher.LockTaskGuard
+import com.meritscreen.feature.child.service.ForegroundAppDetector
 import kotlinx.coroutines.launch
 
 @Composable
@@ -152,12 +154,21 @@ fun ChildHomeScreen(
 
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+    var homeIsResumed by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> viewModel.onResumed()
-                Lifecycle.Event.ON_PAUSE -> viewModel.onPaused()
+                Lifecycle.Event.ON_RESUME -> {
+                    homeIsResumed = true
+                    viewModel.onResumed()
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    homeIsResumed = false
+                    viewModel.onPaused()
+                }
                 else -> Unit
             }
         }
@@ -178,8 +189,16 @@ fun ChildHomeScreen(
         )
         is UiState.Success -> {
             val data = current.data
-            LaunchedEffect(data.session.phase) {
-                if (data.session.phase == SessionPhase.QuizDue) onOpenQuiz()
+            LaunchedEffect(data.session.phase, homeIsResumed) {
+                // With overlay access the foreground service launches the interruption
+                // activity. Do not push a second quiz destination from a Home composition
+                // that remains alive underneath that activity. Without access, Home is the
+                // intentional fallback when it is actually visible to the child.
+                if (data.session.phase == SessionPhase.QuizDue && homeIsResumed &&
+                    !Settings.canDrawOverlays(context)
+                ) {
+                    onOpenQuiz()
+                }
             }
 
             if (data.policy.paused) {
@@ -221,7 +240,9 @@ fun ChildHomeScreen(
                     onCallMom = { launchNativePhone(context) },
                     onCallDad = { launchNativePhone(context) },
                     onEmergency = { launchDialerWithNumber(context, "911") },
-                    onOpenQuiz = onOpenQuiz,
+                    onOpenQuiz = {
+                        if (!Settings.canDrawOverlays(context)) onOpenQuiz()
+                    },
                     onOpenPin = { onOpenPin(false) },
                 )
             } else {
@@ -235,7 +256,9 @@ fun ChildHomeScreen(
                     onAppTapped = { tile ->
                         scope.launch {
                             when (viewModel.onAppTapped(tile)) {
-                                AppTapResult.QuizDue -> onOpenQuiz()
+                                AppTapResult.QuizDue -> {
+                                    if (!Settings.canDrawOverlays(context)) onOpenQuiz()
+                                }
                                 AppTapResult.Shielded -> Unit
                                 AppTapResult.Blocked -> {
                                     if (!tile.rule.allowed) onNotAllowed()
@@ -647,6 +670,7 @@ private fun HomeChromeSections(
     if (!data.isDefaultHome) {
         HomeRoleBanner(onSetup = onOpenLauncherSetup)
     }
+    ProtectionPermissionBanner()
 
     ScreenTimeAllowanceCard(
         dailyRemainingMinutes = data.dailyRemainingMinutes
@@ -2059,6 +2083,65 @@ private fun HomeRoleBanner(onSetup: () -> Unit) {
                 )
             }
             MeritSecondaryButton(text = "Set up", onClick = onSetup)
+        }
+    }
+}
+
+@Composable
+private fun ProtectionPermissionBanner() {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var usageAccessGranted by remember { mutableStateOf(ForegroundAppDetector.hasUsageStatsPermission(context)) }
+    var overlayGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    fun refresh() {
+        usageAccessGranted = ForegroundAppDetector.hasUsageStatsPermission(context)
+        overlayGranted = Settings.canDrawOverlays(context)
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refresh()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    if (usageAccessGranted && overlayGranted) return
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MeritColors.SurfaceContainer),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Finish protection setup", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
+            Text(
+                "Usage Access detects app time. Display over other apps lets the quiz appear when time is up.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MeritColors.OnSurfaceVariant,
+            )
+            if (!usageAccessGranted) {
+                MeritSecondaryButton(
+                    text = "Allow Usage Access",
+                    onClick = {
+                        context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                            if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        })
+                    },
+                )
+            }
+            if (!overlayGranted) {
+                MeritSecondaryButton(
+                    text = "Allow quiz popup",
+                    onClick = {
+                        context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                            data = Uri.parse("package:${context.packageName}")
+                            if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        })
+                    },
+                )
+            }
         }
     }
 }

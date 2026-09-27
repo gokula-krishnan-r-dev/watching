@@ -124,6 +124,8 @@ import kotlin.random.Random
 fun ChildQuizScreen(
     onFinished: () -> Unit,
     onOpenPin: () -> Unit,
+    onContinueToApp: (() -> Unit)? = null,
+    onGoHome: () -> Unit = onFinished,
     viewModel: ChildQuizViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -172,24 +174,26 @@ fun ChildQuizScreen(
                 }
 
                 is QuizUiStep.Completed -> {
-                    QuizPassResultPane(
-                        result = step.result ?: QuizSessionResult(
-                            passed = step.passed,
-                            correctCount = 0,
-                            total = 0,
-                            percent = 100,
-                        ),
-                        childName = data.childName,
-                        appLabel = data.appLabel,
-                        unlockedMinutes = step.unlockedMinutes,
-                        stickerTitle = step.stickerTitle,
-                        stickerEmoji = step.stickerEmoji,
-                        stickerStageLabel = step.stickerStageLabel,
-                        explorerLevel = step.explorerLevel,
-                        xpGained = step.xpGained,
-                        onContinueToApp = onFinished,
-                        onGoHome = onFinished,
-                    )
+                    LaunchedEffect(step.targetPackage, step.passed) {
+                        if (!step.passed) {
+                            onFinished()
+                        } else if (onContinueToApp != null) {
+                            onContinueToApp.invoke()
+                        } else {
+                            val intent = step.targetPackage
+                                ?.takeIf { it != context.packageName }
+                                ?.let(context.packageManager::getLaunchIntentForPackage)
+                            if (intent != null) {
+                                intent.addFlags(
+                                    Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED,
+                                )
+                                runCatching { context.startActivity(intent) }
+                                    .onFailure { onFinished() }
+                            } else {
+                                onFinished()
+                            }
+                        }
+                    }
                 }
 
                 is QuizUiStep.Question -> {
