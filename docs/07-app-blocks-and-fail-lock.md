@@ -50,11 +50,14 @@ The parent picks one primary mode. App-block is the mode that matches the YouTub
 
 | Mode | When the quiz appears | Pass | Fail |
 | --- | --- | --- | --- |
-| **App block** (recommended) | When that app’s block minutes are used | Another block of that app | Shield **all non-emergency apps** until cooldown or a passed retry |
+| **App block** (recommended on phones) | When that app’s block minutes are used | Another block of that app | Shield **all non-emergency apps** until cooldown or a passed retry |
+| **Device interval** (proposed desktop default) | Every N minutes of **device** active use (e.g. 15) | New interval starts | Same fail lock: all non-emergency apps |
 | **Every session** | Before a new session (unlock / after idle), or before opening a gated app | Session / open allowed | Same fail lock: all non-emergency apps |
 | **Daily ceiling** | When today’s total minutes hit the cap | Extra minutes (parent cap) | Same fail lock until cooldown or retry, and no further grants past the ceiling |
 
-App block and daily ceiling **can both be on**. The tighter rule wins. Example: YouTube block is 30, daily ceiling is 90. After three passed YouTube blocks, the daily ceiling stops further grants even if they would pass another quiz.
+App block (or device interval) and daily ceiling **can both be on**. The tighter rule wins. Example: YouTube block is 30, daily ceiling is 90. After three passed YouTube blocks, the daily ceiling stops further grants even if they would pass another quiz.
+
+Desktop shell, guardian process, and no-skip overlay details: [15 — Desktop native production](15-desktop-native-production.md).
 
 ---
 
@@ -93,6 +96,7 @@ The quiz must interrupt the app, not wait until the child happens to press Home.
 | --- | --- |
 | **Android** | Launcher-owned timer. When the block ends, MeritScreen brings the quiz Activity to the front. On fail, **every non-emergency icon is disabled** and Home shows the cooldown lock. Recents cannot reopen a shielded app. |
 | **iOS** | `DeviceActivity` threshold fires. On fail, `ManagedSettings` shields **the full allowed set** except emergency apps. Shield action opens the SwiftUI retry quiz. Pass or cooldown clears the whole shield. |
+| **Desktop (Windows / macOS / Linux)** | Guardian monotonic active-use clock. When the block or device interval ends, Session Agent raises a **topmost quiz overlay with no skip**. On fail, overlay + process/window gating covers or terminates all non-emergency apps. Killing the UI respawns it; persisted `quiz_due` / `shielded` does not clear. See [15](15-desktop-native-production.md). |
 
 Offline: timers, shield state, and quiz content are local. Cloud sync of the result can wait.
 

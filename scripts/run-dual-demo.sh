@@ -3,8 +3,8 @@
 # parent ↔ child sync testing.
 #
 # Defaults:
-#   PARENT  → MeritScreen_API34_Lite  → emulator-5554 (host GPU, 512MB)
-#   CHILD   → MeritScreen_API34_Child → emulator-5556 (swiftshader, 512MB)
+#   PARENT  → MeritScreen_API34_Lite  → emulator-5554 (host GPU, 1536MB)
+#   CHILD   → MeritScreen_API34_Child → emulator-5556 (swiftshader, 1536MB)
 #
 # Lean defaults suit ~8GB Macs. Dual API-34 emulators are still memory-heavy;
 # if either exits under pressure, use one emulator + a USB phone for the other role:
@@ -22,6 +22,8 @@ cd "$ROOT"
 
 # shellcheck source=android-env.sh
 source "$ROOT/scripts/android-env.sh"
+# shellcheck source=app-check-debug.sh
+source "$ROOT/scripts/app-check-debug.sh"
 
 PARENT_AVD="${PARENT_AVD:-MeritScreen_API34_Lite}"
 CHILD_AVD="${CHILD_AVD:-MeritScreen_API34_Child}"
@@ -97,19 +99,10 @@ start_avd_if_needed() {
   log "$serial booted"
 }
 
-app_check_token() {
-  [[ -f "$LOCAL_PROPS" ]] || return 0
-  grep -E '^appCheckDebugToken=' "$LOCAL_PROPS" 2>/dev/null | head -1 | cut -d= -f2- || true
-}
-
 pin_and_launch() {
   local serial="$1" label="$2"
-  local token
-  token="$(app_check_token)"
   log "Install + launch on $serial ($label)"
-  if [[ -n "$token" ]]; then
-    adb -s "$serial" shell setprop debug.firebase.appcheck.app_check_token "$token" >/dev/null 2>&1 || true
-  fi
+  pin_app_check_debug_token "$serial"
   adb -s "$serial" install -r -t "$APK_PATH" >/dev/null
   adb -s "$serial" shell am force-stop "$PACKAGE" >/dev/null 2>&1 || true
   adb -s "$serial" shell am start -n "$ACTIVITY" >/dev/null
@@ -131,9 +124,13 @@ build_apk_if_needed() {
 ensure_avd_exists "$PARENT_AVD"
 ensure_avd_exists "$CHILD_AVD"
 
-# Lean dual-boot for ~8GB Macs (host GPU on parent when available).
-start_avd_if_needed "$PARENT_AVD" "$PARENT_PORT" "$PARENT_SERIAL" host 512 1
-start_avd_if_needed "$CHILD_AVD" "$CHILD_PORT" "$CHILD_SERIAL" swiftshader_indirect 512 1
+# Lean dual-boot (host GPU on parent when available).
+# 512MB hangs boot on API-34; 1536MB is the practical floor on Apple Silicon.
+start_avd_if_needed "$PARENT_AVD" "$PARENT_PORT" "$PARENT_SERIAL" host 1536 2
+start_avd_if_needed "$CHILD_AVD" "$CHILD_PORT" "$CHILD_SERIAL" swiftshader_indirect 1536 2
+
+# Register stable debug token with production Firebase (needed for AI Logic / callables).
+ensure_app_check_debug_token
 
 build_apk_if_needed
 pin_and_launch "$PARENT_SERIAL" "parent"

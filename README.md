@@ -2,7 +2,7 @@
 
 MeritScreen is a parental-control launcher for children aged 3–12. Parents set rules on their own phone. On Android, MeritScreen becomes the child’s Home screen: only approved apps, per-app time blocks, a short quiz for extra time, and a device-wide fail lock.
 
-This repository is the **Android** client (parent + child in one app) plus Firebase configuration. iOS is planned later and will share the same Firebase project and policy JSON.
+This repository is the **Android** client (parent + child in one app), **iOS** app, **desktop** Rust workspace (Windows/macOS first), and Firebase configuration. All clients share the same Firebase project and policy JSON.
 
 ## Current milestone
 
@@ -29,9 +29,13 @@ core/
   analytics/         # Crashlytics + child-safe analytics allowlist
   testing/           # Fakes for unit tests
 features/            # Feature modules (placeholders until later phases)
+ios/                 # Native iOS client
+desktop/             # Rust Guardian + Agent + Tauri UI (phases d0+)
 docs/                # Product specification
 functions/           # Cloud Functions scaffold
 ```
+
+Desktop phase d0 product lock: `docs/17-desktop-d0-product-lock.md`. Build: `make desktop-test`.
 
 Configurable limits such as **maximum children per parent** live in `core/common` (`AppConfig`). Do not hard-code them in feature code.
 

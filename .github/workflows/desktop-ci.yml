@@ -1,0 +1,111 @@
+name: Desktop CI
+
+on:
+  push:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-ci.yml"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-ci.yml"
+
+defaults:
+  run:
+    working-directory: desktop
+
+jobs:
+  test:
+    name: cargo + ui (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/apps/meritscreen-ui/ui/package-lock.json
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop -> target
+
+      - name: Install UI deps
+        working-directory: desktop/apps/meritscreen-ui/ui
+        run: npm ci
+
+      - name: UI typecheck + build
+        working-directory: desktop/apps/meritscreen-ui/ui
+        run: npm run build
+
+      - name: a11y smoke (launcher + quiz + fail lock)
+        working-directory: desktop/apps/meritscreen-ui/ui
+        run: npm run a11y-smoke
+
+      - name: Check
+        run: cargo check --workspace
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Conformance + resilience (d12)
+        run: |
+          cargo test -p meritscreen-core vectors
+          cargo test -p meritscreen-guardian --test resilience
+          cargo test -p meritscreen-updater
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Windows Guardian / Agent smoke
+        if: runner.os == 'Windows'
+        run: |
+          cargo build -p meritscreen-guardian -p meritscreen-agent
+          .\target\debug\meritscreen-guardian.exe --help
+          .\target\debug\meritscreen-agent.exe --help
+          $env:MERITSCREEN_DATA_DIR = Join-Path $env:RUNNER_TEMP "ms-data"
+          $env:MERITSCREEN_SECRETS_DIR = Join-Path $env:RUNNER_TEMP "ms-secrets"
+          New-Item -ItemType Directory -Force -Path $env:MERITSCREEN_DATA_DIR | Out-Null
+          New-Item -ItemType Directory -Force -Path $env:MERITSCREEN_SECRETS_DIR | Out-Null
+          $guardian = Start-Process -PassThru -NoNewWindow -FilePath .\target\debug\meritscreen-guardian.exe -ArgumentList "--no-agent"
+          Start-Sleep -Seconds 3
+          if ($guardian.HasExited) { throw "guardian exited early code=$($guardian.ExitCode)" }
+          Stop-Process -Id $guardian.Id -Force
+          .\target\debug\meritscreen-guardian.exe --perf-smoke
+          Write-Host "Windows guardian console + perf smoke OK"
+
+      - name: macOS Guardian / Agent smoke
+        if: runner.os == 'macOS'
+        run: |
+          cargo build -p meritscreen-guardian -p meritscreen-agent
+          ./target/debug/meritscreen-guardian --help
+          ./target/debug/meritscreen-agent --help
+          export MERITSCREEN_DATA_DIR="$RUNNER_TEMP/ms-data"
+          export MERITSCREEN_SECRETS_DIR="$RUNNER_TEMP/ms-secrets"
+          mkdir -p "$MERITSCREEN_DATA_DIR" "$MERITSCREEN_SECRETS_DIR"
+          ./target/debug/meritscreen-guardian --no-agent &
+          GPID=$!
+          sleep 3
+          if ! kill -0 "$GPID" 2>/dev/null; then echo "guardian exited early"; exit 1; fi
+          kill "$GPID" 2>/dev/null || true
+          wait "$GPID" 2>/dev/null || true
+          ./target/debug/meritscreen-guardian --perf-smoke
+          # Plist templates present for pkg / SMAppService layout
+          test -f packaging/macos/com.meritscreen.guardian.plist
+          test -f packaging/macos/com.meritscreen.agent.plist
+          test -f packaging/macos/entitlements.plist
+          echo "macOS guardian console + perf smoke OK"

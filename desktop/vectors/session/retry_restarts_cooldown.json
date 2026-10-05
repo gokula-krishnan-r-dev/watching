@@ -1,0 +1,33 @@
+{
+  "id": "retry_restarts_cooldown",
+  "description": "Failed retry during cooldown restarts the shield deadline",
+  "policy": {
+    "quizMode": "app_block",
+    "defaultCooldownMinutes": 15,
+    "allowRetryDuringCooldown": true
+  },
+  "rule": {
+    "appId": "yt",
+    "packageOrBundleId": "com.google.android.youtube",
+    "allowed": true,
+    "blockMinutes": 15,
+    "grantOnPassMinutes": 15,
+    "cooldownMinutes": 15
+  },
+  "initial": {
+    "phase": "quiz_due",
+    "dayKey": "2026-10-05",
+    "blockDurationMinutes": 15,
+    "cooldownMinutes": 15,
+    "minutesUsedToday": 0
+  },
+  "steps": [
+    { "op": "quiz_fail", "nowMs": 1000 },
+    { "op": "quiz_fail", "nowMs": 60000 }
+  ],
+  "expect": {
+    "phase": "shielded",
+    "shieldedUntilMs": 960000,
+    "canLaunchRule": false
+  }
+}

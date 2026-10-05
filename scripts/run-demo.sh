@@ -28,6 +28,8 @@ cd "$ROOT"
 
 # shellcheck source=android-env.sh
 source "$ROOT/scripts/android-env.sh"
+# shellcheck source=app-check-debug.sh
+source "$ROOT/scripts/app-check-debug.sh"
 
 AVD_NAME="${AVD_NAME:-MeritScreen_API34_Lite}"
 AVD_PORT="${AVD_PORT:-5554}"
@@ -35,11 +37,8 @@ APK_PATH="$ROOT/app/build/outputs/apk/debug/app-debug.apk"
 BUILD_CONFIG="$ROOT/app/build/generated/source/buildConfig/debug/com/meritscreen/app/BuildConfig.java"
 PACKAGE="com.watching.app"
 ACTIVITY="${PACKAGE}/com.meritscreen.app.MainActivity"
-FIREBASE_PROJECT="managing-screen-time"
-FIREBASE_ANDROID_APP_ID="1:54296812917:android:9200830f4dbaed67a4473c"
+FIREBASE_PROJECT="${FIREBASE_PROJECT:-managing-screen-time}"
 WRAPPER_PROPS="$ROOT/gradle/wrapper/gradle-wrapper.properties"
-LOCAL_PROPS="$ROOT/local.properties"
-APP_CHECK_TOKEN_PROP="debug.firebase.appcheck.app_check_token"
 ANDROID_SERIAL="${ANDROID_SERIAL:-}"
 
 MODE="cloud"          # cloud | emulators
@@ -116,131 +115,12 @@ gradle_version_from_wrapper() {
   basename "$url" | sed -E 's/^gradle-([0-9.]+)-bin\.zip$/\1/'
 }
 
-read_local_prop() {
-  local key="$1"
-  [[ -f "$LOCAL_PROPS" ]] || return 0
-  grep -E "^${key}=" "$LOCAL_PROPS" 2>/dev/null | head -1 | cut -d= -f2- || true
-}
-
-write_local_prop() {
-  local key="$1" value="$2"
-  touch "$LOCAL_PROPS"
-  if grep -qE "^${key}=" "$LOCAL_PROPS" 2>/dev/null; then
-    # portable in-place replace
-    local tmp
-    tmp="$(mktemp)"
-    awk -v k="$key" -v v="$value" 'BEGIN{FS=OFS="="} $1==k{$0=k"="v} {print}' "$LOCAL_PROPS" >"$tmp"
-    mv "$tmp" "$LOCAL_PROPS"
-  else
-    printf '%s=%s\n' "$key" "$value" >>"$LOCAL_PROPS"
-  fi
-}
-
-firebase_access_token() {
-  python3 - <<'PY' 2>/dev/null || true
-import json, os
-path=os.path.expanduser("~/.config/configstore/firebase-tools.json")
-try:
-  with open(path) as f: print(json.load(f).get("tokens",{}).get("access_token",""))
-except Exception:
-  pass
-PY
-}
-
-# Stable App Check debug token for cloud demos (gitignored via local.properties).
-ensure_app_check_debug_token() {
+# Cloud-only: register + pin App Check debug token (shared helper).
+ensure_cloud_app_check_debug_token() {
   [[ "$MODE" == "cloud" ]] || return 0
-
-  local token
-  token="$(read_local_prop appCheckDebugToken)"
-  if [[ -z "$token" ]]; then
-    if command -v uuidgen >/dev/null 2>&1; then
-      token="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-    else
-      token="$(python3 - <<'PY'
-import uuid; print(uuid.uuid4())
-PY
-)"
-    fi
-    write_local_prop appCheckDebugToken "$token"
-    log "Wrote appCheckDebugToken to local.properties (gitignored)"
-  fi
-
-  local access
-  access="$(firebase_access_token)"
-  if [[ -n "$access" ]]; then
-    local reg_out
-    # Register the stable token; if the project is at the 20-token cap, prune older
-    # MeritScreen debug tokens first so Firebase AI Logic App Check exchange succeeds.
-    reg_out="$(python3 - "$access" "$FIREBASE_PROJECT" "$FIREBASE_ANDROID_APP_ID" "$token" <<'PY' 2>/dev/null || true
-import json, sys, urllib.request, urllib.error
-
-access, project, app_id, token = sys.argv[1:5]
-base = f"https://firebaseappcheck.googleapis.com/v1beta/projects/{project}/apps/{app_id}/debugTokens"
-
-def call(method, url, body=None):
-    data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        method=method,
-        headers={"Authorization": f"Bearer {access}", "Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req) as r:
-            raw = r.read().decode()
-            return r.status, json.loads(raw) if raw else {}
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode("utf-8", "replace")
-
-def register():
-    return call("POST", base, {"displayName": "MeritScreen run-demo", "token": token})
-
-status, body = register()
-if status in (200, 201):
-    print("registered", status)
-    raise SystemExit(0)
-text = body if isinstance(body, str) else json.dumps(body)
-if status in (409, 400) and ("ALREADY_EXISTS" in text or "already" in text.lower()):
-    print("already_registered")
-    raise SystemExit(0)
-if status == 401:
-    print("Note: Firebase CLI session expired. App Check debug token will be pinned locally via adb (run 'firebase login' to re-authenticate CLI).")
-    raise SystemExit(0)
-
-# Cap hit (or similar) — delete older MeritScreen tokens, keep a small headroom, retry once.
-if status == 400 and ("Maximum number of debug tokens" in text or "FAILED_PRECONDITION" in text):
-    _, listing = call("GET", base)
-    tokens = listing.get("debugTokens", []) if isinstance(listing, dict) else []
-    # Keep the 4 most recently updated; delete the rest (API name is opaque — not the secret).
-    ordered = sorted(tokens, key=lambda t: t.get("updateTime", ""), reverse=True)
-    for entry in ordered[4:]:
-        name = entry.get("name")
-        if not name:
-            continue
-        call("DELETE", f"https://firebaseappcheck.googleapis.com/v1beta/{name}")
-    status, body = register()
-    if status in (200, 201):
-        print("registered_after_prune", status)
-        raise SystemExit(0)
-    text = body if isinstance(body, str) else json.dumps(body)
-    print(f"register_failed {status}: {text[:200]}")
-    raise SystemExit(0)
-
-print(f"register_failed {status}: {text[:200]}")
-PY
-)"
-    if [[ "$QUIET" -eq 0 && -n "$reg_out" ]]; then
-      printf '%s\n' "$reg_out"
-    fi
-  else
-    warn "Firebase CLI token unavailable; ensure App Check debug token is registered in the console"
-  fi
-
-  # Pin before process start so DebugAppCheckProvider exchanges this UUID.
+  ensure_app_check_debug_token
   if device_online; then
-    adb shell setprop "$APP_CHECK_TOKEN_PROP" "$token" >/dev/null 2>&1 || \
-      warn "Could not set ${APP_CHECK_TOKEN_PROP} via adb (app will try BuildConfig / SharedPreferences seed)"
+    pin_app_check_debug_token "${ANDROID_SERIAL:-}"
     log "App Check debug token pinned for cloud demo"
   fi
 }
@@ -463,7 +343,7 @@ main() {
   fi
 
   ensure_device
-  ensure_app_check_debug_token
+  ensure_cloud_app_check_debug_token
   install_app
   launch_app
 }

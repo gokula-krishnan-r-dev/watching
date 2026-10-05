@@ -301,6 +301,10 @@ Documented so we do not claim enforcement Android does not allow:
 
 Consumer v1 is **PIN + default Home + parent alert**, matching the product spec. Device Owner / lock-task is an optional managed-device path, not the Play-store consumer default.
 
+## Desktop clients (Windows, macOS, Linux)
+
+Desktop is a **separate native client family** that shares this Firebase project and the same policy JSON / session transitions (not Android code). Stack: Rust Guardian + Session Agent + Tauri 2 UI under `desktop/`. Child hot path stays local-DB-only; fail lock remains device-wide. Guardian starts at boot; UI is ephemeral. Full production guide and phases: [docs/15](docs/15-desktop-native-production.md), [docs/16](docs/16-desktop-build-phases.md). Phase d0 product lock: [docs/17](docs/17-desktop-d0-product-lock.md).
+
 ## Security hardening (Phase 9)
 
 Authz lives in **Firestore rules + Cloud Functions**, not the UI. Highlights:

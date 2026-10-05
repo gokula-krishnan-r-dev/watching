@@ -36,6 +36,8 @@ We do **not** need the parent’s contacts, photos, or location.
 | Preset avatar id | Friendly home screen | Yes |
 | Device id + platform | Pairing | Yes after setup |
 
+`platform` today is `android` | `ios`. Proposed desktop values `windows` | `macos` | `linux` (and related device heartbeat fields) are specified in [15 — Desktop native production](15-desktop-native-production.md) §9 — additive and backward compatible.
+
 We do **not** collect: school name, real-time location, contacts, photos, microphone, or a child email.
 
 ### Productivity & usage data (from the child device)
@@ -158,7 +160,7 @@ One document per child, plus one row per allowed app. The parent dashboard write
 
 | Setting | Example | Effect on child |
 | --- | --- | --- |
-| `quizMode` | `app_block` (also `every_session`, `daily_ceiling`) | When a quiz appears |
+| `quizMode` | `app_block` (also `every_session`, `daily_ceiling`; proposed desktop: `device_interval`) | When a quiz appears. Desktop interval + `quizIntervalMinutes` and `platform` values `windows` / `macos` / `linux`: see [15 — Desktop native production](15-desktop-native-production.md) §9 |
 | `failLockScope` | `all_non_emergency` | A fail shields every approved app immediately |
 | `allowRetryDuringCooldown` | false | Unused for fail-lock UI — child must wait out cooldown (no mid-lock quiz retry) |
 | `dailyCeilingMinutes` | off, or 120 | Stops further blocks when today’s total is used |

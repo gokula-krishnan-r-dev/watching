@@ -59,3 +59,10 @@ lint/reports/
 /stitch_meritscreen_android_ui_kit 3
 /stitch_meritscreen_android_ui_kit/c04_child_device_pairing_setup
 /stitch_meritscreen_android_ui_kit
+
+# Desktop (Rust / Tauri)
+desktop/target/
+desktop/apps/meritscreen-ui/ui/node_modules/
+desktop/apps/meritscreen-ui/ui/dist/
+desktop/**/Cargo.lock
+!desktop/Cargo.lock

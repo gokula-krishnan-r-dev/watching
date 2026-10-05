@@ -53,9 +53,9 @@ Until then, providers are installed in **monitor** mode (`enforceAppCheck` defau
 
 Production Auth/Firestore from a debug APK still needs a **registered debug token** once the App Check API is enabled (otherwise the SDK logs exchange failures). Firebase AI Logic also enforces App Check — an unregistered / random debug secret causes `QuizPackGenerationWorker` to fail closed to the builtin bank:
 
-1. `./scripts/run-demo.sh` writes `appCheckDebugToken` to gitignored `local.properties`, registers it via the App Check API when the Firebase CLI is logged in (pruning older MeritScreen debug tokens if the 20-token cap is hit), and pins it with `adb shell setprop debug.firebase.appcheck.app_check_token …`.
+1. `make dev` / `make up-dev` (or `./scripts/run-demo.sh` / `./scripts/run-dual-demo.sh`) write `appCheckDebugToken` to gitignored `local.properties`, register it via the App Check API when the Firebase CLI is logged in (pruning older MeritScreen debug tokens if the 20-token cap is hit), and pin it with `adb shell setprop debug.firebase.appcheck.app_check_token …`.
 2. `:app` copies that value into `BuildConfig.APP_CHECK_DEBUG_TOKEN`; on startup the debug build seeds Firebase's App Check SharedPreferences store and registers `InternalDebugSecretProvider` so emulators (which block `SystemProperties.set`) still exchange the same UUID.
-3. Manual registration: Firebase Console → App Check → your Android app → Manage debug tokens.
+3. Manual registration: Firebase Console → App Check → your Android app → Manage debug tokens. Keep `firebase login` current so demos can auto-register.
 
 Do not commit debug tokens. Do not enable App Check enforcement until Play Integrity works for release builds.
 
@@ -82,8 +82,37 @@ Keep the child permission list short: default Home, internet, optional usage sta
 - Device Admin used to prevent uninstall in the consumer app
 - Private / hidden APIs
 - Silently blocking uninstall or hiding Settings without Device Owner
+- Desktop: kernel drivers, rootkits, keyloggers, other-app screen capture, fake MDM uninstall locks on consumer SKUs
 
 If a requirement cannot be enforced on a given API level or OEM, document the gap in the parent “device health” UI instead of faking it.
+
+## Desktop (Windows / macOS)
+
+Desktop shares this threat model and the same Firebase project. Process split: **Guardian** (boot service) owns SQLCipher + session/sync; **Session Agent** tracks foreground/idle; **Tauri UI** is ephemeral and never talks to Firebase directly. See [docs/15](docs/15-desktop-native-production.md) and [docs/17](docs/17-desktop-d0-product-lock.md).
+
+| Topic | Rule |
+| --- | --- |
+| App Check | No official desktop attestation provider yet. Mitigate with rate limits, device-bound pairing tokens, revoke, and monitor mode. Custom attestation spike: [desktop/docs/app-check-attestation-spike.md](desktop/docs/app-check-attestation-spike.md) — do not block Win/Mac v1 on it. |
+| Secrets | DPAPI (Windows) / Keychain (macOS) for DB key, refresh material, pairing credential, IPC HMAC key. Never log PIN, tokens, emails, or pairing codes (`sanitize_for_log` on tracing). |
+| Uninstall | PIN-gated uninstall helper where we own the UX; detect service removal → `tamperFlags.uninstallAttempt` + parent alert. Require standard (non-admin) child account. Do not claim silent uninstall block without MDM. |
+| Reboot | Guardian must start at boot; fail-lock / quiz_due persist in SQLCipher across power cycles. |
+| IPC | Peer credentials **and** HMAC-SHA256 on every frame (d9); spoof without MAC fails closed. UI crash must not clear `quiz_due` / `shielded`. |
+| Updater | Ed25519-signed manifest; binary SHA-256; rollback floor (`minVersion`); staged rings `internal` → `pilot` → `stable` with `rolloutPercent`. Health-gated rollout — never leave child without a Guardian. |
+
+### Desktop threat model (d9)
+
+| Threat | Residual risk | Mitigation (honest) |
+| --- | --- | --- |
+| **Admin / root child account** | Child can stop services, change shell, uninstall | Detect → `tamperFlags.adminAccount` + parent copy; enforce **standard** child account in setup checklist — do not claim unbreakable lockdown |
+| **Guardian service stopped / disabled** | Enforcement pauses until restart | Boot service + respawn; `tamperFlags.serviceStopped`; last local policy stays fail-closed (does not loosen) |
+| **SQLCipher DB key theft** | Offline policy/session readable if OS secret store + disk are both compromised | Key in DPAPI/Keychain (or lab file store); no key in logs; wrong key fails closed; physical+admin access is out of consumer threat model |
+| **IPC spoofing** (local malware talking to Guardian) | Without auth, any local process could raise lock / bind pairing | Unix peer UID (+ root→user Agent); Windows PID + MeritScreen image path check; **HMAC** on frames with machine-local key; unauthorized / bad MAC → drop |
+| **Uninstall without parent** | Consumer OS cannot silently block ARP/pkg remove without MDM | PIN-gated helper we ship; else detect → `uninstallAttempt` + alert; standard account raises the bar |
+| **Broken / rolled-back updater** | Bad binary bricks Guardian | Ed25519 verify; refuse versions below accepted floor; staged channel + manual recovery (reinstall pkg/MSI) |
+| **Clock rollback** | Skip cooldowns / quiz due | Monotonic active-use clock; large wall rollback → shield + `clockRollback` |
+| **No App Check on desktop REST** | Stolen child token abuse | Rate limits on Functions; device-bound pairing; revoke; monitor — see spike doc |
+
+**Security checklist (d9 sign-off):** IPC spoof test fails closed · pairing/OTP not logged · uninstall PIN path documented · updater dry-run verifies signature + rollback · App Check residual risk accepted for v1.
 
 ## Pairing tokens
 

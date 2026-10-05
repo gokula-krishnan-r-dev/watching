@@ -32,12 +32,17 @@ service cloud.firestore {
     function isFamilyMember(familyId) {
       return signedIn()
         && !isChildDevice()
-        && exists(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid));
+        && (
+          exists(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid))
+          || (exists(/databases/$(database)/documents/families/$(familyId)) && get(/databases/$(database)/documents/families/$(familyId)).data.ownerUid == request.auth.uid)
+          || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.familyId == familyId)
+        );
     }
 
     function isFamilyOwner(familyId) {
       return signedIn()
         && !isChildDevice()
+        && exists(/databases/$(database)/documents/families/$(familyId))
         && get(/databases/$(database)/documents/families/$(familyId)).data.ownerUid == request.auth.uid;
     }
 
@@ -78,6 +83,12 @@ service cloud.firestore {
           'fcmTokenUpdatedAt',
           'installedApps',
           'installedAppsUpdatedAt',
+          // Desktop Guardian heartbeats (d5+) — never allow clearing `revoked`.
+          'agentVersion',
+          'osBuild',
+          'guardianState',
+          'tamperFlags',
+          'enforcementTier',
         ]);
     }
 
@@ -154,6 +165,15 @@ service cloud.firestore {
               && request.resource.data.revoked == resource.data.revoked
               && childDeviceUpdateKeysOnly()
             );
+
+          match /installedApps/{appId} {
+            allow read: if isSuperAdmin() || isFamilyMember(familyId) || childDeviceOf(familyId, childId);
+            allow write: if isSuperAdmin() || isFamilyMember(familyId) || (
+              childDeviceOf(familyId, childId)
+              && hasClaim('deviceId')
+              && request.auth.token.deviceId == deviceId
+            );
+          }
         }
 
         match /usageDays/{day} {

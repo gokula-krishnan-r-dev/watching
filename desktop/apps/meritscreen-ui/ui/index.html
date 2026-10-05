@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MeritScreen</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app" class="shell">
+      <header class="brand-bar">
+        <p class="brand">MeritScreen</p>
+        <div class="appearance" role="group" aria-label="Appearance">
+          <button type="button" data-appearance="system" class="chip">System</button>
+          <button type="button" data-appearance="light" class="chip">Light</button>
+          <button type="button" data-appearance="dark" class="chip">Dark</button>
+        </div>
+      </header>
+
+      <main id="view" class="view" aria-live="polite">
+        <p class="muted">Loading…</p>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

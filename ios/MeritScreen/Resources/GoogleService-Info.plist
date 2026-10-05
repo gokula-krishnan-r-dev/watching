@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>54296812917-sbr2bg0hir11dbtdhp1e789oi4ukf3qo.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.54296812917-sbr2bg0hir11dbtdhp1e789oi4ukf3qo</string>
+	<key>API_KEY</key>
+	<string>AIzaSyBo_rVfmEtdJwXgf4H6qVxoR8dvnSE8AMw</string>
+	<key>GCM_SENDER_ID</key>
+	<string>54296812917</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.meritscreen.app</string>
+	<key>PROJECT_ID</key>
+	<string>managing-screen-time</string>
+	<key>STORAGE_BUCKET</key>
+	<string>managing-screen-time.appspot.com</string>
+	<key>IS_ADS_ENABLED</key>
+	<false/>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false/>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true/>
+	<key>IS_GCM_ENABLED</key>
+	<true/>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true/>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:54296812917:ios:c54129b87f2e1a3b482910</string>
+	<key>DATABASE_URL</key>
+	<string>https://managing-screen-time-default-rtdb.asia-southeast1.firebasedatabase.app</string>
+</dict>
+</plist>

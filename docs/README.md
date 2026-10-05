@@ -21,12 +21,15 @@ These documents turn the original product brief into a build-ready specification
 | [12 — Sticker rewards & staged explorer levels](12-sticker-rewards.md) | Collectible stickers, Explorer XP/levels, Room-first awards, parent P16 / child Sticker Book |
 | [13 — iOS native production](13-ios-native-production.md) | SwiftUI + Family Controls: what’s possible, parent/child production flows, sync, limits |
 | [14 — iOS build phases](14-ios-build-phases.md) | End-to-end i0–i12 roadmap mirroring Android: SwiftUI Apple design, Appearance Light/Dark, Firebase |
+| [15 — Desktop native production](15-desktop-native-production.md) | Windows / macOS / Linux: Rust guardian + Tauri UI, launcher layers, 15‑min no-skip quiz, Firebase REST, limits |
+| [16 — Desktop build phases](16-desktop-build-phases.md) | End-to-end d0–d12 roadmap: Win/Mac first, Linux beta; same Firebase policy as phones |
 
 **Read this set in order** if you are new to the product.  
 If you already know the idea, start at **02** (onboarding) and **03** (data).  
 Operators building the internal console: start at **10** (after **03** and [SECURITY.md](../SECURITY.md)).  
 Engineers wiring FCM end-to-end: start at **11** (after **03**, **04** § Notifications, and [FIREBASE_ARCHITECTURE.md](../FIREBASE_ARCHITECTURE.md)).  
-Engineers planning the iOS client: start at **13** (after **01**, **05**, and **07**), then execute **14**.
+Engineers planning the iOS client: start at **13** (after **01**, **05**, and **07**), then execute **14**.  
+Engineers planning the desktop clients: start at **15** (after **01**, **05**, and **07**), then execute **16**.
 
 ## PDF export
 
@@ -44,4 +47,4 @@ Regenerate anytime (includes docs 01–09 when the PDF script is next updated; *
 
 ## One-sentence product
 
-A parent sets rules on their own phone. On Android, MeritScreen is the Home screen. On iOS, SwiftUI plus Family Controls applies the same rules. Each approved app has a time block (example: 30 minutes of YouTube, then a quiz). A pass grants another block of that app. A fail immediately shields every app except emergency apps such as Phone, until the cooldown ends or a retry quiz is passed. Quizzes adapt, and a wrong answer explains the concept — from text (or pictures and speech for ages 3–6) already on the device.
+A parent sets rules on their own phone or desktop. On Android, MeritScreen is the Home screen. On iOS, SwiftUI plus Family Controls applies the same rules. On Windows/macOS/Linux, a Rust guardian plus launcher UI applies the same policy (device-interval or app-block quizzes). A pass grants more time. A fail immediately shields every app except emergency apps, until the cooldown ends or a retry quiz is passed. Quizzes adapt, and a wrong answer explains the concept — from text (or pictures and speech for ages 3–6) already on the device.
