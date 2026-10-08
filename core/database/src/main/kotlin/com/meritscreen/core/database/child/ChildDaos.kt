@@ -54,14 +54,17 @@ interface ChildPolicyDao {
 
 @Dao
 interface SessionStateDao {
-    @Query("SELECT * FROM session_state WHERE id = 1 LIMIT 1")
-    fun observe(): Flow<SessionStateEntity?>
+    @Query("SELECT * FROM session_state WHERE childId = :childId LIMIT 1")
+    fun observe(childId: String): Flow<SessionStateEntity?>
 
-    @Query("SELECT * FROM session_state WHERE id = 1 LIMIT 1")
-    suspend fun get(): SessionStateEntity?
+    @Query("SELECT * FROM session_state WHERE childId = :childId LIMIT 1")
+    suspend fun get(childId: String): SessionStateEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: SessionStateEntity)
+
+    @Query("DELETE FROM session_state WHERE childId = :childId")
+    suspend fun clearForChild(childId: String)
 
     @Query("DELETE FROM session_state")
     suspend fun clear()

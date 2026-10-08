@@ -70,7 +70,7 @@ public struct P04b_SetParentPinView: View {
                     pin: step == .enterInitial ? $initialPin : $confirmPin,
                     title: step == .enterInitial ? "Create a 4-Digit Parent PIN" : "Confirm Your PIN",
                     subtitle: step == .enterInitial
-                        ? "Only parents can exit MeritScreen, change schedules, or approve bonus time."
+                        ? "Only parents can exit Watching, change schedules, or approve bonus time."
                         : "Re-enter your 4-digit PIN to confirm.",
                     errorMessage: errorMessage
                 ) { enteredPin in

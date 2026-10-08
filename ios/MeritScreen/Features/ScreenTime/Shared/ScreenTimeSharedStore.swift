@@ -45,7 +45,7 @@ public struct PendingQuizRequest: Codable, Sendable, Equatable {
 /// between the main MeritScreen application and background extensions.
 public final class ScreenTimeSharedStore: @unchecked Sendable {
     public static let shared = ScreenTimeSharedStore()
-    public static let appGroupId = "group.com.meritscreen.app"
+    public static let appGroupId = "group.com.watching.app"
 
     private let lock = NSLock()
     private let defaults: UserDefaults

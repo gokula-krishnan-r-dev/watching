@@ -6,9 +6,9 @@ import BackgroundTasks
 public final class BGTaskCoordinator: @unchecked Sendable {
     public static let shared = BGTaskCoordinator()
 
-    public static let heartbeatTaskId = "com.meritscreen.child.heartbeat"
-    public static let policySyncTaskId = "com.meritscreen.child.policy_sync"
-    public static let usageUploadTaskId = "com.meritscreen.child.usage_upload"
+    public static let heartbeatTaskId = "com.watching.child.heartbeat"
+    public static let policySyncTaskId = "com.watching.child.policy_sync"
+    public static let usageUploadTaskId = "com.watching.child.usage_upload"
 
     private let heartbeatCoordinator: DeviceHeartbeatCoordinator
     private let policyPullCoordinator: ChildPolicyPullCoordinator

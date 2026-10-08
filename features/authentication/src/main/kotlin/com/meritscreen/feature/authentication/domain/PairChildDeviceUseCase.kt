@@ -32,7 +32,18 @@ class PairChildDeviceUseCase @Inject constructor(
         }
         return try {
             val deviceId = pairingStore.getOrCreateDeviceId()
+            val existingProfiles = pairingStore.listProfiles()
             val result = pairingClient.consumeToken(digits, secret, deviceId)
+            val isNewProfile = existingProfiles
+                .none { it.childId.equals(result.childId, ignoreCase = true) }
+            if (isNewProfile && existingProfiles.size >= AppConfig.MAX_CHILDREN_PER_PARENT) {
+                return Outcome.Failure(
+                    AppError.Validation(
+                        "This device already has ${AppConfig.MAX_CHILDREN_PER_PARENT} child profiles. " +
+                            "Remove one from Parent menu before pairing another.",
+                    ),
+                )
+            }
             authClient.signInWithCustomToken(result.customToken)
             pairingStore.set(
                 ChildPairingCredential(
@@ -41,10 +52,13 @@ class PairChildDeviceUseCase @Inject constructor(
                     deviceId = result.deviceId,
                     parentPinHash = result.parentPinHash,
                     displayName = result.displayName,
+                    avatarId = result.avatarId,
                 ),
             )
             analyticsTracker.track(AnalyticsEvent.ChildDevicePaired)
             Outcome.Success(Unit)
+        } catch (error: IllegalStateException) {
+            Outcome.Failure(AppError.Validation(error.message ?: "Could not add another child on this device."))
         } catch (error: AppErrorException) {
             Outcome.Failure(error.error)
         } catch (error: Throwable) {

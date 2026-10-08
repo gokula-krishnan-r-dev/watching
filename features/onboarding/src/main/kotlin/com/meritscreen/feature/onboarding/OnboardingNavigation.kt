@@ -9,6 +9,7 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
+import com.meritscreen.core.common.domain.AgeBand
 import com.meritscreen.core.common.domain.AvatarPreset
 import com.meritscreen.feature.onboarding.ui.AddChildRoute
 import com.meritscreen.feature.onboarding.ui.AddChildScreen
@@ -110,12 +111,13 @@ fun NavGraphBuilder.onboardingGraph(
     }
     composable<SetParentPinRoute> {
         SetParentPinToAiBridge(
-            onContinue = { childName, grade, avatar ->
+            onContinue = { childName, grade, avatar, ageBand ->
                 navController.navigate(
                     AiLearningContextRoute(
                         childName = childName,
                         grade = grade,
                         avatar = avatar,
+                        ageBand = ageBand,
                     ),
                 )
             },
@@ -125,9 +127,11 @@ fun NavGraphBuilder.onboardingGraph(
     composable<AiLearningContextRoute> { entry ->
         val route = entry.toRoute<AiLearningContextRoute>()
         val avatar = parseAvatar(route.avatar)
+        val ageBand = parseAgeBand(route.ageBand)
         AiLearningContextScreen(
             childName = route.childName,
             grade = route.grade,
+            ageBand = ageBand,
             avatarEmoji = avatar.emoji,
             onContinue = {
                 navController.navigate(
@@ -154,14 +158,14 @@ fun NavGraphBuilder.onboardingGraph(
 
 @Composable
 private fun SetParentPinToAiBridge(
-    onContinue: (childName: String, grade: String, avatar: String) -> Unit,
+    onContinue: (childName: String, grade: String, avatar: String, ageBand: String) -> Unit,
     onBack: () -> Unit,
 ) {
     val viewModel: OnboardingChildContextViewModel = hiltViewModel()
     val child = viewModel.childContext.collectAsState().value
     SetParentPinScreen(
         onContinue = {
-            onContinue(child.name, child.gradeLabel, child.avatar.name)
+            onContinue(child.name, child.gradeLabel, child.avatar.name, child.ageBand.name)
         },
         onBack = onBack,
     )
@@ -170,3 +174,7 @@ private fun SetParentPinToAiBridge(
 private fun parseAvatar(raw: String): AvatarPreset =
     AvatarPreset.entries.firstOrNull { it.name.equals(raw, ignoreCase = true) }
         ?: AvatarPreset.Default
+
+private fun parseAgeBand(raw: String): AgeBand =
+    AgeBand.entries.firstOrNull { it.name.equals(raw, ignoreCase = true) }
+        ?: AgeBand.AGE_7_TO_9

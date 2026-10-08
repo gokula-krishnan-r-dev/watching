@@ -37,7 +37,7 @@ public struct I01_ScreenTimeSetupView: View {
                             .foregroundColor(MeritColor.label)
                             .multilineTextAlignment(.center)
 
-                        Text("Apple's native Screen Time API enables MeritScreen to pause apps when your block ends, and shield apps during fail-lock resting windows.")
+                        Text("Apple's native Screen Time API enables Watching to pause apps when your block ends, and shield apps during fail-lock resting windows.")
                             .font(MeritTypography.body)
                             .foregroundColor(MeritColor.secondaryLabel)
                             .multilineTextAlignment(.center)
@@ -49,7 +49,7 @@ public struct I01_ScreenTimeSetupView: View {
                         featureRow(
                             icon: "timer",
                             title: "Protected Learning Blocks",
-                            description: "When an app's timer ends, MeritScreen prompts a quick quiz to unlock more time."
+                            description: "When an app's timer ends, Watching prompts a quick quiz to unlock more time."
                         )
 
                         featureRow(
@@ -67,7 +67,7 @@ public struct I01_ScreenTimeSetupView: View {
                         featureRow(
                             icon: "lock.shield.fill",
                             title: "Zero Private Data",
-                            description: "MeritScreen cannot see what you type, read, or watch inside other apps."
+                            description: "Watching cannot see what you type, read, or watch inside other apps."
                         )
                     }
                     .padding(MeritSpacing.large)

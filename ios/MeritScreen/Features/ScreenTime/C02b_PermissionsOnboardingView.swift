@@ -6,7 +6,7 @@ import ManagedSettings
 /// Guides the child/parent through:
 ///   1. Screen Time (FamilyControls) authorization
 ///   2. FamilyActivityPicker — select which apps to monitor
-///   3. Notification permission (so MeritScreen can wake the app for quiz alerts)
+///   3. Notification permission (so Watching can wake the app for quiz alerts)
 ///
 /// This screen must be completed before the child reaches the ChildHubView.
 /// It cannot be skipped — Screen Time enforcement will not work without authorization.
@@ -136,7 +136,7 @@ public struct C02b_PermissionsOnboardingView: View {
                     .foregroundColor(MeritColor.label)
                     .multilineTextAlignment(.center)
 
-                Text("Let's set up Screen Time supervision so MeritScreen can manage your daily app limits.")
+                Text("Let's set up Screen Time supervision so Watching can manage your daily app limits.")
                     .font(MeritTypography.body)
                     .foregroundColor(MeritColor.secondaryLabel)
                     .multilineTextAlignment(.center)
@@ -150,7 +150,7 @@ public struct C02b_PermissionsOnboardingView: View {
                 featureRow(icon: "moon.stars.fill", title: "Bedtime Calm",
                            desc: "Non-essential apps rest during bedtime. Emergency contacts always available.")
                 featureRow(icon: "lock.shield.fill", title: "Zero Snooping",
-                           desc: "MeritScreen cannot read messages, photos, or anything private.")
+                           desc: "Watching cannot read messages, photos, or anything private.")
             }
             .padding(MeritSpacing.large)
             .background(MeritColor.cardBackground)
@@ -175,7 +175,7 @@ public struct C02b_PermissionsOnboardingView: View {
                     .foregroundColor(MeritColor.label)
                     .multilineTextAlignment(.center)
 
-                Text("MeritScreen needs Apple's Screen Time permission to pause and shield apps automatically at the OS level.")
+                Text("Watching needs Apple's Screen Time permission to pause and shield apps automatically at the OS level.")
                     .font(MeritTypography.body)
                     .foregroundColor(MeritColor.secondaryLabel)
                     .multilineTextAlignment(.center)
@@ -223,7 +223,7 @@ public struct C02b_PermissionsOnboardingView: View {
                     .foregroundColor(MeritColor.label)
                     .multilineTextAlignment(.center)
 
-                Text("Choose which apps MeritScreen will manage with timed blocks and quizzes. You can change this later from Parent Controls.")
+                Text("Choose which apps Watching will manage with timed blocks and quizzes. You can change this later from Parent Controls.")
                     .font(MeritTypography.body)
                     .foregroundColor(MeritColor.secondaryLabel)
                     .multilineTextAlignment(.center)
@@ -304,7 +304,7 @@ public struct C02b_PermissionsOnboardingView: View {
                     .foregroundColor(MeritColor.label)
                     .multilineTextAlignment(.center)
 
-                Text("MeritScreen uses notifications to alert you when a quiz is ready and when your fail-lock cooldown ends.")
+                Text("Watching uses notifications to alert you when a quiz is ready and when your fail-lock cooldown ends.")
                     .font(MeritTypography.body)
                     .foregroundColor(MeritColor.secondaryLabel)
                     .multilineTextAlignment(.center)
@@ -357,13 +357,13 @@ public struct C02b_PermissionsOnboardingView: View {
                     .foregroundColor(MeritColor.label)
                     .multilineTextAlignment(.center)
 
-                Text("MeritScreen is now protecting your screen time. Open your apps from the home screen — your timer starts when you do.")
+                Text("Watching is now protecting your screen time. Open your apps from the home screen — your timer starts when you do.")
                     .font(MeritTypography.body)
                     .foregroundColor(MeritColor.secondaryLabel)
                     .multilineTextAlignment(.center)
             }
 
-            MeritButton("Enter MeritScreen Hub", icon: "house.fill", style: .primary) {
+            MeritButton("Enter Watching Hub", icon: "house.fill", style: .primary) {
                 onComplete()
             }
         }
@@ -378,7 +378,7 @@ public struct C02b_PermissionsOnboardingView: View {
         if granted {
             step = .appSelection
         } else {
-            errorMessage = "Screen Time authorization was denied. Please go to iOS Settings > Screen Time > Allow MeritScreen."
+            errorMessage = "Screen Time authorization was denied. Please go to iOS Settings > Screen Time > Allow Watching."
         }
     }
 

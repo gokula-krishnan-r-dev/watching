@@ -1654,7 +1654,8 @@
 					"$(inherited)",
 					"-ObjC",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.meritscreentest.app;
+				INFOPLIST_KEY_CFBundleDisplayName = Watching;
+				PRODUCT_BUNDLE_IDENTIFIER = com.watching.app;
 				PRODUCT_NAME = MeritScreen;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
@@ -1676,7 +1677,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.meritscreentest.app.shieldconfig;
+				PRODUCT_BUNDLE_IDENTIFIER = com.watching.app.shieldconfig;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1694,7 +1695,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.meritscreentest.app.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.watching.app.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MeritScreen.app/MeritScreen";
@@ -1715,7 +1716,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.meritscreentest.app.shieldaction;
+				PRODUCT_BUNDLE_IDENTIFIER = com.watching.app.shieldaction;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1863,7 +1864,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.meritscreentest.app.shieldconfig;
+				PRODUCT_BUNDLE_IDENTIFIER = com.watching.app.shieldconfig;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1881,7 +1882,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.meritscreentest.app.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.watching.app.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MeritScreen.app/MeritScreen";
@@ -1902,7 +1903,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.meritscreentest.app.shieldaction;
+				PRODUCT_BUNDLE_IDENTIFIER = com.watching.app.shieldaction;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1923,7 +1924,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.meritscreentest.app.deviceactivity;
+				PRODUCT_BUNDLE_IDENTIFIER = com.watching.app.deviceactivity;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1949,7 +1950,8 @@
 					"$(inherited)",
 					"-ObjC",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.meritscreentest.app;
+				INFOPLIST_KEY_CFBundleDisplayName = Watching;
+				PRODUCT_BUNDLE_IDENTIFIER = com.watching.app;
 				PRODUCT_NAME = MeritScreen;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
@@ -1971,7 +1973,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.meritscreentest.app.deviceactivity;
+				PRODUCT_BUNDLE_IDENTIFIER = com.watching.app.deviceactivity;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";

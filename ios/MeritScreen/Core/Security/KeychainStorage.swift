@@ -15,7 +15,7 @@ public final class KeychainStorage: SecureStorageProtocol {
     private let accessGroup: String?
 
     public init(
-        service: String = "com.meritscreen.app.security",
+        service: String = "com.watching.app.security",
         accessGroup: String? = nil
     ) {
         self.service = service

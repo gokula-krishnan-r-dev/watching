@@ -77,7 +77,7 @@ public final class ScreenTimeActivationCoordinator {
             let granted = await authManager.requestAuthorization(for: .individual)
             authorizationStatus = authManager.status
             guard granted else {
-                errorMessage = "Screen Time authorization is required for MeritScreen to work. Please allow it in Settings > Screen Time."
+                errorMessage = "Screen Time authorization is required for Watching to work. Please allow it in Settings > Screen Time."
                 return false
             }
         }

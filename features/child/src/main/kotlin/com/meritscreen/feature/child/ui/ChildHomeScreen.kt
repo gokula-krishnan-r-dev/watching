@@ -189,6 +189,40 @@ fun ChildHomeScreen(
         )
         is UiState.Success -> {
             val data = current.data
+            val shouldPinForFailLock = LockTaskGuard.shouldPinForFailLock(
+                paused = data.policy.paused,
+                phase = data.session.phase,
+            )
+            val hostActivity = remember(context) { LockTaskGuard.findActivity(context) }
+
+            // Pin only during fail-lock. Always clear pin on playground / daily-cap so
+            // approved apps (e.g. YouTube) are not blocked by residual screen pinning.
+            DisposableEffect(shouldPinForFailLock, hostActivity) {
+                val activity = hostActivity
+                if (activity != null) {
+                    if (shouldPinForFailLock) {
+                        LockTaskGuard.engage(activity)
+                    } else {
+                        LockTaskGuard.ensureReleased(activity)
+                    }
+                }
+                onDispose {
+                    // Never leave MainActivity pinned when this Home composition goes away.
+                    hostActivity?.let { LockTaskGuard.ensureReleased(it) }
+                }
+            }
+
+            LaunchedEffect(homeIsResumed, shouldPinForFailLock, hostActivity) {
+                val activity = hostActivity ?: return@LaunchedEffect
+                if (!homeIsResumed) return@LaunchedEffect
+                if (shouldPinForFailLock) {
+                    LockTaskGuard.engage(activity)
+                } else {
+                    // OEM skins (esp. Samsung) can leave pin sticky after stopLockTask.
+                    LockTaskGuard.ensureReleased(activity)
+                }
+            }
+
             LaunchedEffect(data.session.phase, homeIsResumed) {
                 // With overlay access the foreground service launches the interruption
                 // activity. Do not push a second quiz destination from a Home composition
@@ -198,6 +232,27 @@ fun ChildHomeScreen(
                     !Settings.canDrawOverlays(context)
                 ) {
                     onOpenQuiz()
+                }
+            }
+
+            suspend fun handleAppTap(tile: HomeAppTile) {
+                // Screen pinning blocks startActivity to other packages; clear first.
+                val activity = LockTaskGuard.prepareExternalLaunch(context)
+                when (viewModel.onAppTapped(tile)) {
+                    AppTapResult.QuizDue -> {
+                        if (!Settings.canDrawOverlays(context)) onOpenQuiz()
+                        LockTaskGuard.restoreFailLockPinIfNeeded(activity, shouldPinForFailLock)
+                    }
+                    AppTapResult.Shielded -> {
+                        LockTaskGuard.restoreFailLockPinIfNeeded(activity, shouldPinForFailLock)
+                    }
+                    AppTapResult.Blocked -> {
+                        LockTaskGuard.restoreFailLockPinIfNeeded(activity, shouldPinForFailLock)
+                        if (!tile.rule.allowed) onNotAllowed()
+                    }
+                    AppTapResult.Launched -> {
+                        // Pin restores on ON_RESUME if fail-lock still applies.
+                    }
                 }
             }
 
@@ -214,7 +269,7 @@ fun ChildHomeScreen(
                         }
                     },
                     onEmergency = { tile ->
-                        scope.launch { viewModel.onAppTapped(tile) }
+                        scope.launch { handleAppTap(tile) }
                     },
                 )
             } else if (data.session.phase == SessionPhase.Shielded) {
@@ -227,7 +282,7 @@ fun ChildHomeScreen(
                         }
                     },
                     onEmergency = { tile ->
-                        scope.launch { viewModel.onAppTapped(tile) }
+                        scope.launch { handleAppTap(tile) }
                     },
                 )
             } else if (data.dailyRemainingMinutes != null && data.dailyRemainingMinutes <= 0) {
@@ -254,18 +309,7 @@ fun ChildHomeScreen(
                     onStartEmergencyCall = viewModel::startEmergencyCall,
                     onEndEmergencyCall = viewModel::endEmergencyCall,
                     onAppTapped = { tile ->
-                        scope.launch {
-                            when (viewModel.onAppTapped(tile)) {
-                                AppTapResult.QuizDue -> {
-                                    if (!Settings.canDrawOverlays(context)) onOpenQuiz()
-                                }
-                                AppTapResult.Shielded -> Unit
-                                AppTapResult.Blocked -> {
-                                    if (!tile.rule.allowed) onNotAllowed()
-                                }
-                                AppTapResult.Launched -> Unit
-                            }
-                        }
+                        scope.launch { handleAppTap(tile) }
                     },
                     onOpenQuiz = onOpenQuiz,
                     onOpenStickerBook = onOpenStickerBook,
@@ -283,6 +327,7 @@ fun ChildHomeScreen(
 }
 
 private fun launchNativePhone(context: Context) {
+    LockTaskGuard.prepareExternalLaunch(context)
     val dialIntent = Intent(Intent.ACTION_DIAL).apply {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
@@ -301,6 +346,7 @@ private fun launchNativePhone(context: Context) {
 }
 
 private fun launchDialerWithNumber(context: Context, number: String) {
+    LockTaskGuard.prepareExternalLaunch(context)
     val dialIntent = if (number.isNotBlank()) {
         Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))
     } else {
@@ -314,6 +360,7 @@ private fun launchDialerWithNumber(context: Context, number: String) {
 }
 
 private fun launchNativeCamera(context: Context) {
+    LockTaskGuard.prepareExternalLaunch(context)
     val cameraIntent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).apply {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
@@ -2721,14 +2768,9 @@ private fun FailLockPane(
     subtitle: String = "Apps are temporarily paused by your parent. Emergency calls remain available anytime.",
     hideCountdown: Boolean = false,
 ) {
-    val context = LocalContext.current
-    DisposableEffect(Unit) {
-        val activity = context as? Activity
-        if (activity != null) LockTaskGuard.engage(activity)
-        onDispose {
-            if (activity != null) LockTaskGuard.release(activity)
-        }
-    }
+    // Screen pinning is owned by ChildHomeScreen (fail-lock only). Do not engage here —
+    // a local DisposableEffect raced with playground recomposition and left residual pin
+    // that blocked YouTube / approved-app launches with the system unpin toast.
 
     Box(
         modifier = Modifier

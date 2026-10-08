@@ -115,7 +115,7 @@ public struct P08_ParentPairingView: View {
                         .clipShape(RoundedRectangle(cornerRadius: MeritSpacing.radiusMedium, style: .continuous))
                         .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 4)
 
-                    Text("Scan with MeritScreen on child's phone")
+                    Text("Scan with Watching on child's phone")
                         .font(MeritTypography.subheadline)
                         .foregroundColor(MeritColor.secondaryLabel)
                 }
@@ -172,7 +172,7 @@ public struct P08_ParentPairingView: View {
 
             // Step instructions
             VStack(alignment: .leading, spacing: MeritSpacing.small) {
-                stepRow(number: "1", text: "Install MeritScreen on the child's iPhone or iPad")
+                stepRow(number: "1", text: "Install Watching on the child's iPhone or iPad")
                 stepRow(number: "2", text: "Select 'Set Up Child Device' on their device")
                 stepRow(number: "3", text: "Scan this QR code or enter the 6-digit code")
             }

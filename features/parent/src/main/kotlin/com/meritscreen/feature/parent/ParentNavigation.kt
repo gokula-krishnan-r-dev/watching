@@ -337,6 +337,7 @@ private fun ParentAddChildAiRoute(
         AiLearningContextScreen(
             childName = childName,
             grade = ParentAddChildPolicyViewModel.gradeLabelFor(ageBand),
+            ageBand = ageBand,
             avatarEmoji = avatar.emoji,
             stepLabel = "Step 5 of 5 • AI",
             onBack = onBack,

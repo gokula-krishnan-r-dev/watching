@@ -34,7 +34,7 @@ class ChildLocalDataWiper @Inject constructor(
         policyDao.clearPolicy(childId)
         policyDao.clearAppRules(childId)
         policyDao.clearProfile(childId)
-        sessionStateDao.clear()
+        sessionStateDao.clearForChild(childId)
         quizDao.clearSkills(childId)
         quizDao.clearRecent(childId)
         usageDao.clearForChild(childId)

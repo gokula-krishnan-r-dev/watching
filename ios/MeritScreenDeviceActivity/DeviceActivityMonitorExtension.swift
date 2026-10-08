@@ -9,7 +9,7 @@ import os
 /// IMPORTANT: This process runs in a separate address space — no Firebase, no URLSession.
 /// Communication happens ONLY via ScreenTimeSharedStore (App Group UserDefaults).
 final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
-    private let logger = Logger(subsystem: "com.meritscreen.app.deviceactivity", category: "Monitor")
+    private let logger = Logger(subsystem: "com.watching.app.deviceactivity", category: "Monitor")
     private let sharedStore = ScreenTimeSharedStore.shared
     private let managedStore = ManagedSettingsStore()
 

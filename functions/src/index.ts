@@ -651,6 +651,51 @@ async function mintChildPairingResponse(args: {
 }
 
 /**
+ * Shared-tablet profile switch: remint Auth claims for another child already bound to
+ * this physical deviceId. Requires an existing non-revoked device doc under the target
+ * child (from a prior consumePairingToken). Parent PIN is enforced client-side before call.
+ */
+export const activateChildOnDevice = onCall(CALLABLE_OPTS, async (request) => {
+  const typed = request as CallableRequest;
+  if (!typed.auth) {
+    throw new HttpsError("unauthenticated", "Sign in on this device first.");
+  }
+  if (typed.auth.token?.role !== "child_device") {
+    throw new HttpsError("permission-denied", "Only a paired child device can switch profiles.");
+  }
+  const data = asRecord(typed.data);
+  const childId = requireString(data.childId, "childId");
+  const deviceId = requireString(data.deviceId, "deviceId").replace(/[^a-zA-Z0-9]/g, "");
+  const tokenDeviceId = String(typed.auth.token.deviceId ?? "");
+  const tokenFamilyId = String(typed.auth.token.familyId ?? "");
+  if (!tokenDeviceId || tokenDeviceId !== deviceId) {
+    throw new HttpsError("permission-denied", "Device id does not match this paired handset.");
+  }
+  if (!tokenFamilyId) {
+    throw new HttpsError("failed-precondition", "This device is missing a family binding.");
+  }
+  if (childId === typed.auth.token.childId) {
+    // Already active — still remint so the client gets a fresh token + profile fields.
+  }
+  const childRef = db.collection("families").doc(tokenFamilyId).collection("children").doc(childId);
+  const deviceRef = childRef.collection("devices").doc(deviceId);
+  const deviceSnap = await deviceRef.get();
+  if (!deviceSnap.exists || deviceSnap.get("revoked") === true) {
+    throw new HttpsError(
+      "failed-precondition",
+      "That child is not paired on this device. Ask a parent for a pairing code first.",
+    );
+  }
+  await deviceRef.set({ lastSeenAt: FieldValue.serverTimestamp() }, { merge: true });
+  return mintChildPairingResponse({
+    familyId: tokenFamilyId,
+    childId,
+    deviceId,
+    childRef,
+  });
+});
+
+/**
  * Sends a data-only (no `notification` payload) high-priority FCM message to every
  * non-revoked device with a registered token for this child. Data-only messages reach
  * `onMessageReceived` on Android even while the app is backgrounded — the client hands off

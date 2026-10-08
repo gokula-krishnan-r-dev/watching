@@ -84,7 +84,7 @@ public struct ParentDashboardPlaceholderView: View {
                 .responsiveContainer(maxWidth: 640)
             }
             .background(MeritColor.groupedBackground.ignoresSafeArea())
-            .navigationTitle("MeritScreen")
+            .navigationTitle("Watching")
             .navigationBarTitleDisplayMode(.inline)
         }
     }

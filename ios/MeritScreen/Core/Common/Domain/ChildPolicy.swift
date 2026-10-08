@@ -22,7 +22,7 @@ public enum QuizMode: String, Codable, Sendable, CaseIterable {
         case .appBlock:
             return "Recommended. When an app's time block ends, a short quiz unlocks another block."
         case .everySession:
-            return "A quiz when the child opens MeritScreen for a new session."
+            return "A quiz when the child opens Watching for a new session."
         case .dailyCeiling:
             return "Quiz only when the optional daily minute cap is reached."
         }

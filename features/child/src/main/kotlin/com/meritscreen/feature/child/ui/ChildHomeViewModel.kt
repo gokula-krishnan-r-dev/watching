@@ -406,6 +406,13 @@ class ChildHomeViewModel @Inject constructor(
         _isDefaultHome.value = deviceLifecycle.isDefaultHome()
         deviceLifecycle.checkOnResume()
         clock.value = SystemClock.elapsedRealtime()
+        // Shared-tablet: pick up an active-child switch performed from Parent menu.
+        viewModelScope.launch {
+            val activeId = pairingStore.get()?.childId
+            if (activeId != null && activeId != childId.value) {
+                childId.value = activeId
+            }
+        }
         startPeriodicTicker()
     }
 

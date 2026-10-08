@@ -22,7 +22,7 @@ public struct S00_SplashView: View {
                     .scaledToFit()
                     .frame(maxWidth: 240, maxHeight: 120)
 
-                Text("MeritScreen")
+                Text("Watching")
                     .font(MeritTypography.title)
                     .foregroundColor(MeritColor.label)
             }

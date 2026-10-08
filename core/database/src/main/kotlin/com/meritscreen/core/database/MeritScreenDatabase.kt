@@ -44,7 +44,7 @@ import com.meritscreen.core.database.device.InstalledAppEntity
         ChildStickerUnlockEntity::class,
         ChildExplorerProgressEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class MeritScreenDatabase : RoomDatabase() {

@@ -129,7 +129,7 @@ class ChildPolicySyncCoordinator @Inject constructor(
             if (!pinHash.isNullOrBlank()) {
                 val credential = pairingStore.get()
                 if (credential != null && credential.parentPinHash != pinHash) {
-                    pairingStore.set(credential.copy(parentPinHash = pinHash))
+                    pairingStore.updateParentPinHash(pinHash)
                 }
             }
             analyticsTracker.track(AnalyticsEvent.PolicySyncCompleted)

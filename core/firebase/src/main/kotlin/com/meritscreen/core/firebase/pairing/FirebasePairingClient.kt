@@ -47,18 +47,36 @@ class FirebasePairingClient @Inject constructor(
             .call(payload)
             .await()
             .data
-        val map = asMap(data)
-        PairingResult(
-            customToken = requiredString(map, "customToken"),
-            familyId = requiredString(map, "familyId"),
-            childId = requiredString(map, "childId"),
-            deviceId = requiredString(map, "deviceId"),
-            parentPinHash = requiredString(map, "parentPinHash"),
-            displayName = map["displayName"] as? String ?: "",
-            ageBand = map["ageBand"] as? String ?: "",
-            avatarId = map["avatarId"] as? String ?: "",
-        )
+        parsePairingResult(asMap(data))
     }
+
+    override suspend fun activateChildOnDevice(
+        childId: String,
+        deviceId: String,
+    ): PairingResult = runPairing {
+        val data = functions
+            .getHttpsCallable("activateChildOnDevice")
+            .call(
+                mapOf(
+                    "childId" to childId,
+                    "deviceId" to deviceId,
+                ),
+            )
+            .await()
+            .data
+        parsePairingResult(asMap(data))
+    }
+
+    private fun parsePairingResult(map: Map<*, *>): PairingResult = PairingResult(
+        customToken = requiredString(map, "customToken"),
+        familyId = requiredString(map, "familyId"),
+        childId = requiredString(map, "childId"),
+        deviceId = requiredString(map, "deviceId"),
+        parentPinHash = requiredString(map, "parentPinHash"),
+        displayName = map["displayName"] as? String ?: "",
+        ageBand = map["ageBand"] as? String ?: "",
+        avatarId = map["avatarId"] as? String ?: "",
+    )
 
     private suspend fun <T> runPairing(block: suspend () -> T): T = try {
         withContext(dispatchers.io) { block() }

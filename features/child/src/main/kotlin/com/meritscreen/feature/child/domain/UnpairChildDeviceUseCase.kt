@@ -22,13 +22,11 @@ class UnpairChildDeviceUseCase @Inject constructor(
     private val analyticsTracker: AnalyticsTracker,
 ) {
     suspend operator fun invoke() {
-        val childId = pairingStore.get()?.childId
+        val profiles = pairingStore.listProfiles()
         syncCoordinator.stop()
         usageSyncScheduler.cancel()
         authClient.signOut()
-        if (childId != null) {
-            localDataWiper.wipeForChild(childId)
-        }
+        profiles.forEach { localDataWiper.wipeForChild(it.childId) }
         pinGateStore.clear()
         pairingStore.clear()
         sessionRoleRepository.clear()

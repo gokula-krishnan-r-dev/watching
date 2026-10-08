@@ -7,7 +7,7 @@ public final class AppLogger: Sendable {
 
     private let logger: Logger
 
-    public init(subsystem: String = "com.meritscreen.app", category: String = "App") {
+    public init(subsystem: String = "com.watching.app", category: String = "App") {
         self.logger = Logger(subsystem: subsystem, category: category)
     }
 

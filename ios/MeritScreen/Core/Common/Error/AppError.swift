@@ -57,7 +57,7 @@ public enum AppError: LocalizedError, Equatable, Sendable {
         .pairing(userMessage: message)
     }
 
-    public static func permission(_ message: String = "MeritScreen needs permission to continue.") -> AppError {
+    public static func permission(_ message: String = "Watching needs permission to continue.") -> AppError {
         .permission(userMessage: message)
     }
 

@@ -89,7 +89,8 @@ These replace the system home. Back / Home returns here.
 | C12 | Fail lock | Full-screen lock. Every approved icon disabled. Only emergency apps |
 | C13 | Daily ceiling | Only if a daily cap is on and used up |
 | C14 | Parent PIN | Numpad overlay |
-| C15 | On-device parent menu | After PIN: allowlist, unpair, switch launcher |
+| C15 | On-device parent menu | After PIN: refresh rules, **switch child profile**, unpair, switch launcher |
+| C15b | Switch child profile | List of paired kids on this device (max 5); timers/rules switch with selection |
 | C16 | Bedtime lock (if enabled) | “Sleep time” illustration, PIN override |
 
 ### Child Home (C05) layout — keep it tiny

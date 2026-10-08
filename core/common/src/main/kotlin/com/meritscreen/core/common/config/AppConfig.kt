@@ -17,9 +17,14 @@ object AppConfig {
     const val EMAIL_OTP_TTL_MINUTES: Int = 10
     const val EMAIL_OTP_RESEND_COOLDOWN_SECONDS: Int = 42
     const val EMAIL_OTP_MAX_ATTEMPTS: Int = 5
-    /** Default app allowance assigned when a parent newly allows an application. */
+    /** Default session block (minutes) when a parent newly allows an app or child allowlist is seeded. */
     const val DEFAULT_BLOCK_MINUTES: Int = 15
     const val DEFAULT_COOLDOWN_MINUTES: Int = 15
+    /**
+     * Session-block length chips on the parent allowlist rule card.
+     * First value should match [DEFAULT_BLOCK_MINUTES] so creation defaults highlight 15m.
+     */
+    val ALLOWLIST_BLOCK_PRESET_MINUTES: List<Int> = listOf(15, 30, 45, 50, 60)
     /** XP granted on each passed quiz when stickers/rewards are enabled. */
     const val STICKER_QUIZ_PASS_XP: Int = 10
     /** Extra XP on Sat/Sun when [ChildPolicy.weekendBonusEnabled] is true. */

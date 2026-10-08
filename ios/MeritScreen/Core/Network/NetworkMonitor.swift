@@ -12,7 +12,7 @@ public extension NetworkMonitorProtocol {
 }
 
 public extension Notification.Name {
-    static let networkStatusChanged = Notification.Name("com.meritscreen.network_status_changed")
+    static let networkStatusChanged = Notification.Name("com.watching.network_status_changed")
 }
 
 /// Real-time network reachability monitor using Apple's Network framework (NWPathMonitor).
@@ -23,7 +23,7 @@ public final class NetworkMonitor: NetworkMonitorProtocol, @unchecked Sendable {
     public private(set) var isConnected: Bool = true
 
     private let monitor: NWPathMonitor
-    private let queue = DispatchQueue(label: "com.meritscreen.networkmonitor", qos: .utility)
+    private let queue = DispatchQueue(label: "com.watching.networkmonitor", qos: .utility)
 
     public init() {
         self.monitor = NWPathMonitor()

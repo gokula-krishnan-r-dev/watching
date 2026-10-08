@@ -157,6 +157,9 @@ class FakePairingClient(
         lastDeviceId = deviceId
         return result.copy(deviceId = deviceId)
     }
+
+    override suspend fun activateChildOnDevice(childId: String, deviceId: String): PairingResult =
+        result.copy(childId = childId, deviceId = deviceId)
 }
 
 class FakeChildPairingStore(

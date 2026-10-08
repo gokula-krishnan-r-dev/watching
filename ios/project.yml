@@ -1,6 +1,6 @@
 name: MeritScreen
 options:
-  bundleIdPrefix: com.meritscreen
+  bundleIdPrefix: com.watching
   deploymentTarget:
     iOS: "17.0"
   xcodeVersion: "16.0"
@@ -54,7 +54,8 @@ targets:
     settings:
       base:
         PRODUCT_NAME: "MeritScreen"
-        PRODUCT_BUNDLE_IDENTIFIER: com.meritscreen.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.watching.app
+        INFOPLIST_KEY_CFBundleDisplayName: Watching
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -80,7 +81,7 @@ targets:
       - sdk: FamilyControls.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.meritscreen.app.deviceactivity
+        PRODUCT_BUNDLE_IDENTIFIER: com.watching.app.deviceactivity
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_ENTITLEMENTS: MeritScreenDeviceActivity/MeritScreenDeviceActivity.entitlements
 
@@ -103,7 +104,7 @@ targets:
       - sdk: FamilyControls.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.meritscreen.app.shieldconfig
+        PRODUCT_BUNDLE_IDENTIFIER: com.watching.app.shieldconfig
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_ENTITLEMENTS: MeritScreenShieldConfig/MeritScreenShieldConfig.entitlements
 
@@ -125,7 +126,7 @@ targets:
       - sdk: FamilyControls.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.meritscreen.app.shieldaction
+        PRODUCT_BUNDLE_IDENTIFIER: com.watching.app.shieldaction
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_ENTITLEMENTS: MeritScreenShieldAction/MeritScreenShieldAction.entitlements
 
@@ -139,6 +140,6 @@ targets:
       - target: MeritScreen
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.meritscreen.app.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.watching.app.tests
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST: YES

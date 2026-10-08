@@ -524,6 +524,10 @@ class PolicyEditorViewModel @Inject constructor(
     private val _policy = MutableStateFlow<UiState<ChildPolicy>>(UiState.Loading)
     val policy: StateFlow<UiState<ChildPolicy>> = _policy.asStateFlow()
 
+    private val _ageBand = MutableStateFlow(AgeBand.AGE_7_TO_9)
+    /** Child age band for age-appropriate Quick add chips on adaptive settings. */
+    val ageBand: StateFlow<AgeBand> = _ageBand.asStateFlow()
+
     private val _saving = MutableStateFlow(false)
     val saving: StateFlow<Boolean> = _saving.asStateFlow()
 
@@ -540,6 +544,11 @@ class PolicyEditorViewModel @Inject constructor(
     private suspend fun load() {
         try {
             val familyId = parentSessionRepository.current()?.familyId ?: return
+            val profile = parentControlStore.listChildren(familyId)
+                .firstOrNull { it.childId == childId }
+            if (profile != null) {
+                _ageBand.value = profile.ageBand
+            }
             _policy.value = UiState.Success(parentControlStore.getPolicy(familyId, childId))
         } catch (error: Throwable) {
             _policy.value = UiState.Error(AppErrorMapper.from(error))

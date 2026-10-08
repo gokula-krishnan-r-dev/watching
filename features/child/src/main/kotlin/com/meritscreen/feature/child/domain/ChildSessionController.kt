@@ -30,11 +30,13 @@ class ChildSessionController @Inject constructor(
     val snapshot: StateFlow<SessionSnapshot> = _snapshot.asStateFlow()
 
     private var lastPersisted: SessionSnapshot? = null
+    private var lastPersistedChildId: String? = null
     private var lastPersistElapsedMs: Long = 0L
 
     suspend fun hydrate() {
         mutex.withLock {
-            val loaded = sessionRepository.get()
+            val childId = pairingStore.get()?.childId
+            val loaded = if (childId.isNullOrBlank()) SessionSnapshot() else sessionRepository.get(childId)
             val nowElapsedMs = now()
             val clockReset = loaded.lastTickElapsedMs?.let { it > nowElapsedMs } == true
             val restored = if (clockReset) {
@@ -53,7 +55,44 @@ class ChildSessionController @Inject constructor(
             }
             val next = SessionEngine.expireShieldIfNeeded(restored, nowElapsedMs)
             _snapshot.value = next
-            persist(next, force = true)
+            lastPersisted = null
+            if (!childId.isNullOrBlank()) {
+                persistLocked(childId, next, force = true)
+            }
+        }
+    }
+
+    /** Force-write the in-memory snapshot for the currently active child (before a profile switch). */
+    suspend fun flushActive() {
+        mutex.withLock {
+            val childId = pairingStore.get()?.childId ?: return
+            persistLocked(childId, _snapshot.value, force = true)
+        }
+    }
+
+    /**
+     * Load the (already activated) child's Room session into memory.
+     * Call after Auth remint + [ChildPairingStore.set] on profile switch; [flushActive] first.
+     */
+    suspend fun switchHydrateFromDisk() {
+        mutex.withLock {
+            val childId = pairingStore.get()?.childId
+            if (childId.isNullOrBlank()) {
+                _snapshot.value = SessionSnapshot()
+                lastPersisted = null
+                lastPersistedChildId = null
+                return
+            }
+            val loaded = sessionRepository.get(childId)
+            val nowElapsedMs = now()
+            val next = SessionEngine.expireShieldIfNeeded(
+                loaded.copy(lastTickElapsedMs = loaded.lastTickElapsedMs ?: nowElapsedMs),
+                nowElapsedMs,
+            )
+            _snapshot.value = next
+            lastPersisted = null
+            lastPersistedChildId = childId
+            persistLocked(childId, next, force = true)
         }
     }
 
@@ -149,12 +188,18 @@ class ChildSessionController @Inject constructor(
     fun phase(): SessionPhase = _snapshot.value.phase
 
     private suspend fun persist(next: SessionSnapshot, force: Boolean) {
+        val childId = pairingStore.get()?.childId ?: return
+        persistLocked(childId, next, force)
+    }
+
+    private suspend fun persistLocked(childId: String, next: SessionSnapshot, force: Boolean) {
         val nowElapsed = now()
         if (!force && !SessionPersistPolicy.shouldPersist(lastPersisted, next, nowElapsed, lastPersistElapsedMs)) {
             return
         }
-        sessionRepository.save(next)
+        sessionRepository.save(childId, next)
         lastPersisted = next
+        lastPersistedChildId = childId
         lastPersistElapsedMs = nowElapsed
     }
 

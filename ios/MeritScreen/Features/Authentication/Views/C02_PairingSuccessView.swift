@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// C02: Child Device Pairing Success Screen.
-/// Confirms the child profile and welcomes the child to MeritScreen.
+/// Confirms the child profile and welcomes the child to Watching.
 public struct C02_PairingSuccessView: View {
     public let credential: ChildPairingCredential
     public let onContinue: () -> Void
@@ -52,7 +52,7 @@ public struct C02_PairingSuccessView: View {
 
             // Continue CTA
             MeritButton(
-                "Enter MeritScreen",
+                "Enter Watching",
                 icon: "arrow.right",
                 style: .primary,
                 action: onContinue

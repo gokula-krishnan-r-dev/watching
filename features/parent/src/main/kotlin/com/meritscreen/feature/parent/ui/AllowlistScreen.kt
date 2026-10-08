@@ -75,6 +75,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.meritscreen.core.common.config.AppConfig
 import com.meritscreen.core.common.domain.AppRule
+import com.meritscreen.core.common.domain.ChildAllowlistDefaults
 import com.meritscreen.core.common.domain.InstalledAppSummary
 import com.meritscreen.core.common.error.AppErrorMapper
 import com.meritscreen.core.common.session.ParentSessionRepository
@@ -131,6 +132,7 @@ class AllowlistViewModel @Inject constructor(
     val saving: StateFlow<Boolean> = _saving.asStateFlow()
 
     private var inventoryJob: Job? = null
+    private var seedJob: Job? = null
 
     init {
         refresh()
@@ -160,6 +162,7 @@ class AllowlistViewModel @Inject constructor(
                         isRefreshing = false,
                     ),
                 )
+                seedMissingAllowRules(familyId, installed, rules)
             } catch (error: Throwable) {
                 if (previous == null) {
                     _uiState.value = UiState.Error(AppErrorMapper.from(error))
@@ -177,6 +180,7 @@ class AllowlistViewModel @Inject constructor(
             parentControlStore.observeInstalledApps(familyId, childId)
                 .catch { /* keep last one-shot list; manual refresh still works */ }
                 .collect { installed ->
+                    val currentRules = (_uiState.value as? UiState.Success)?.data?.rules.orEmpty()
                     _uiState.update { state ->
                         when (state) {
                             is UiState.Success -> state.copy(
@@ -188,7 +192,49 @@ class AllowlistViewModel @Inject constructor(
                             else -> state
                         }
                     }
+                    seedMissingAllowRules(familyId, installed, currentRules)
                 }
+        }
+    }
+
+    /**
+     * New child / first inventory: allow every installed app with the default 15m block.
+     * Existing rules (including parent disables) are never overwritten.
+     */
+    private fun seedMissingAllowRules(
+        familyId: String,
+        installed: List<InstalledAppSummary>,
+        rules: List<AppRule>,
+    ) {
+        val existingByPackage = rules.associateBy { it.packageOrBundleId.lowercase() }
+        val missing = ChildAllowlistDefaults.missingRulesToSeed(installed, existingByPackage)
+        if (missing.isEmpty() || seedJob?.isActive == true) return
+        seedJob = viewModelScope.launch {
+            try {
+                // Optimistic UI: toggles ON + Active Rule cards at 15m before writes finish.
+                _uiState.update { state ->
+                    if (state is UiState.Success) {
+                        val merged = (state.data.rules + missing)
+                            .distinctBy { it.packageOrBundleId.lowercase() }
+                        state.copy(data = state.data.copy(rules = merged))
+                    } else {
+                        state
+                    }
+                }
+                missing.forEach { rule ->
+                    parentControlStore.upsertAppRule(familyId, childId, rule)
+                }
+                val refreshed = parentControlStore.listAppRules(familyId, childId)
+                _uiState.update { state ->
+                    if (state is UiState.Success) {
+                        state.copy(data = state.data.copy(rules = refreshed))
+                    } else {
+                        state
+                    }
+                }
+            } catch (error: Throwable) {
+                updateForm { it.copy(formError = AppErrorMapper.from(error).userMessage) }
+            }
         }
     }
 
@@ -207,15 +253,7 @@ class AllowlistViewModel @Inject constructor(
                 parentControlStore.upsertAppRule(
                     familyId,
                     childId,
-                    (existing ?: AppRule(
-                        appId = app.packageName.replace('.', '_'),
-                        packageOrBundleId = app.packageName,
-                        displayName = app.label,
-                        allowed = allowed,
-                        blockMinutes = AppConfig.DEFAULT_BLOCK_MINUTES,
-                        grantOnPassMinutes = AppConfig.DEFAULT_BLOCK_MINUTES,
-                        cooldownMinutes = AppConfig.DEFAULT_COOLDOWN_MINUTES,
-                    )).copy(
+                    (existing ?: ChildAllowlistDefaults.ruleForInstalledApp(app)).copy(
                         allowed = allowed,
                         displayName = existing?.displayName?.ifBlank { app.label } ?: app.label,
                     ),
@@ -248,14 +286,11 @@ class AllowlistViewModel @Inject constructor(
                 parentControlStore.upsertAppRule(
                     familyId,
                     childId,
-                    AppRule(
-                        appId = pkg.replace('.', '_'),
-                        packageOrBundleId = pkg,
-                        displayName = current.nameInput.ifBlank { pkg.substringAfterLast('.') },
-                        allowed = true,
-                        blockMinutes = AppConfig.DEFAULT_BLOCK_MINUTES,
-                        grantOnPassMinutes = AppConfig.DEFAULT_BLOCK_MINUTES,
-                        cooldownMinutes = AppConfig.DEFAULT_COOLDOWN_MINUTES,
+                    ChildAllowlistDefaults.ruleForInstalledApp(
+                        InstalledAppSummary(
+                            packageName = pkg,
+                            label = current.nameInput.ifBlank { pkg.substringAfterLast('.') },
+                        ),
                     ),
                 )
                 _uiState.update { state ->
@@ -306,6 +341,12 @@ class AllowlistViewModel @Inject constructor(
         _uiState.update { state ->
             if (state is UiState.Success) state.copy(data = transform(state.data)) else state
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        inventoryJob?.cancel()
+        seedJob?.cancel()
     }
 }
 
@@ -1097,7 +1138,7 @@ private fun AppRuleCard(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            listOf(15, 30, 45, 50, 60).forEach { mins ->
+                            AppConfig.ALLOWLIST_BLOCK_PRESET_MINUTES.forEach { mins ->
                                 val isSelected = rule.blockMinutes == mins
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),

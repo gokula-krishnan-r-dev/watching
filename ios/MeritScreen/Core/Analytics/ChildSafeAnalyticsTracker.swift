@@ -7,7 +7,7 @@ import os
 public final class ChildSafeAnalyticsTracker: AnalyticsTrackerProtocol, @unchecked Sendable {
     public static let shared = ChildSafeAnalyticsTracker()
 
-    private let logger = Logger(subsystem: "com.meritscreen.app", category: "Analytics")
+    private let logger = Logger(subsystem: "com.watching.app", category: "Analytics")
     private let lock = NSLock()
     private var currentRole: String = "unassigned"
     private var isChildDevice: Bool = false
@@ -44,7 +44,7 @@ public final class ChildSafeAnalyticsTracker: AnalyticsTrackerProtocol, @uncheck
 public final class CrashReporter: CrashReporterProtocol, @unchecked Sendable {
     public static let shared = CrashReporter()
 
-    private let logger = Logger(subsystem: "com.meritscreen.app", category: "Diagnostics")
+    private let logger = Logger(subsystem: "com.watching.app", category: "Diagnostics")
     private let lock = NSLock()
     private var currentRole: String = "unassigned"
 

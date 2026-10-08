@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.meritscreen.core.common.config.AppConfig
 import com.meritscreen.core.common.domain.AppInventoryCategorizer
 import com.meritscreen.core.common.domain.AppRule
+import com.meritscreen.core.common.domain.ChildAllowlistDefaults
 import com.meritscreen.core.common.domain.InstalledAppSummary
 import com.meritscreen.core.common.error.AppError
 import com.meritscreen.core.common.error.AppErrorMapper
@@ -68,6 +69,7 @@ class OnboardingAllowlistViewModel @Inject constructor(
     private var installedApps: List<InstalledAppSummary> = emptyList()
     private var inventoryJob: Job? = null
     private var policyJob: Job? = null
+    private var seedJob: Job? = null
 
     init {
         bootstrap()
@@ -254,6 +256,7 @@ class OnboardingAllowlistViewModel @Inject constructor(
                 actionError = null,
             )
         }
+        seedMissingAllowRules()
     }
 
     private fun optimisticToggle(packageName: String, allowed: Boolean) {
@@ -280,16 +283,40 @@ class OnboardingAllowlistViewModel @Inject constructor(
         }
     }
 
-    private fun defaultRule(row: AllowlistAppRow): AppRule = AppRule(
-        appId = row.packageName.replace('.', '_'),
-        packageOrBundleId = row.packageName,
-        displayName = row.label,
-        allowed = row.isAllowed,
-        blockMinutes = AppConfig.DEFAULT_BLOCK_MINUTES,
-        grantOnPassMinutes = AppConfig.DEFAULT_BLOCK_MINUTES,
-        cooldownMinutes = AppConfig.DEFAULT_COOLDOWN_MINUTES,
-        isEmergency = row.category == AppCategoryFilter.SYSTEM_LOCKED,
-    )
+    private fun defaultRule(row: AllowlistAppRow): AppRule =
+        ChildAllowlistDefaults.ruleForInstalledApp(
+            InstalledAppSummary(packageName = row.packageName, label = row.label),
+        ).copy(allowed = row.isAllowed)
+
+    /**
+     * Persist allow-all + 15m rules for installed packages that have no rule yet.
+     * Never overwrites a parent toggle (existing rules are sticky).
+     */
+    private fun seedMissingAllowRules() {
+        val missing = ChildAllowlistDefaults.missingRulesToSeed(installedApps, rulesByPackage)
+        if (missing.isEmpty()) return
+        if (seedJob?.isActive == true) return
+        seedJob = viewModelScope.launch {
+            try {
+                ensureIds()
+                // Optimistic paint: show every missing package as allowed @ default block.
+                val optimistic = rulesByPackage.toMutableMap()
+                missing.forEach { rule ->
+                    optimistic[rule.packageOrBundleId.lowercase()] = rule
+                }
+                rulesByPackage = optimistic
+                publishRows()
+                missing.forEach { rule ->
+                    parentControlStore.upsertAppRule(familyId, childId, rule)
+                }
+                rulesByPackage = parentControlStore.listAppRules(familyId, childId)
+                    .associateBy { it.packageOrBundleId.lowercase() }
+                publishRows()
+            } catch (_: Throwable) {
+                // Keep optimistic rows; parent can still toggle. Refresh recovers.
+            }
+        }
+    }
 
     private suspend fun ensureIds() {
         if (familyId.isNotBlank() && childId.isNotBlank()) return
@@ -311,6 +338,7 @@ class OnboardingAllowlistViewModel @Inject constructor(
         super.onCleared()
         inventoryJob?.cancel()
         policyJob?.cancel()
+        seedJob?.cancel()
     }
 
     companion object {
@@ -333,13 +361,9 @@ class OnboardingAllowlistViewModel @Inject constructor(
                             else -> classification.subtitle
                         },
                         isVerifiedSafe = classification.verifiedSafe,
-                        isAllowed = rule?.allowed == true,
-                        blockMinutes = rule?.blockMinutes
-                            ?: if (classification.category == AppInventoryCategorizer.Category.ENTERTAINMENT) {
-                                AppConfig.DEFAULT_BLOCK_MINUTES
-                            } else {
-                                0
-                            },
+                        // No rule yet → allowed + default block (seeded to Firestore async).
+                        isAllowed = ChildAllowlistDefaults.effectiveAllowed(rule),
+                        blockMinutes = ChildAllowlistDefaults.effectiveBlockMinutes(rule),
                         iconBase64 = app.iconBase64,
                         iconHash = app.iconHash,
                     )

@@ -48,7 +48,7 @@ public struct S02_LegalPrivacyView: View {
                     privacyCard(
                         icon: "hand.raised.fill",
                         title: "Zero tracking, zero ads",
-                        description: "No advertising networks, behavior trackers, or data brokering. MeritScreen is funded by subscriptions, not surveillance."
+                        description: "No advertising networks, behavior trackers, or data brokering. Watching is funded by subscriptions, not surveillance."
                     )
 
                     privacyCard(
@@ -68,7 +68,7 @@ public struct S02_LegalPrivacyView: View {
                             .font(.system(size: 24))
                             .foregroundColor(consentGiven ? MeritColor.accent : MeritColor.secondaryLabel)
 
-                        Text("I am a parent or legal guardian, and I consent to MeritScreen's kids privacy policy and offline data storage.")
+                        Text("I am a parent or legal guardian, and I consent to Watching's kids privacy policy and offline data storage.")
                             .font(MeritTypography.subheadline)
                             .foregroundColor(MeritColor.label)
                             .multilineTextAlignment(.leading)

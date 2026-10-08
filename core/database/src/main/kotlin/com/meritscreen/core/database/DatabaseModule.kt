@@ -37,6 +37,39 @@ object DatabaseModule {
         }
     }
 
+    /**
+     * Session state becomes per-child so a shared tablet can switch profiles without
+     * leaking timers / fail-lock across kids. Legacy single-row (`id = 1`) is dropped;
+     * the active child re-hydrates Idle on first open after upgrade.
+     */
+    private val MIGRATION_11_12 = object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("DROP TABLE IF EXISTS `session_state`")
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `session_state` (
+                    `childId` TEXT NOT NULL,
+                    `phase` TEXT NOT NULL,
+                    `activePackage` TEXT,
+                    `activeAppId` TEXT,
+                    `blockStartedElapsedMs` INTEGER,
+                    `blockDurationMinutes` INTEGER NOT NULL,
+                    `minutesAccruedInBlock` REAL NOT NULL,
+                    `deviceShieldedUntilElapsedMs` INTEGER,
+                    `cooldownMinutes` INTEGER NOT NULL,
+                    `dayKey` TEXT NOT NULL,
+                    `minutesUsedToday` INTEGER NOT NULL,
+                    `lastTickElapsedMs` INTEGER,
+                    `quizLockEndsAtElapsedMs` INTEGER,
+                    `quizLockQuestionId` TEXT,
+                    `quizGraceUntilElapsedMs` INTEGER,
+                    PRIMARY KEY(`childId`)
+                )
+                """.trimIndent(),
+            )
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MeritScreenDatabase {
@@ -47,6 +80,7 @@ object DatabaseModule {
         )
             .addMigrations(MIGRATION_9_10)
             .addMigrations(MIGRATION_10_11)
+            .addMigrations(MIGRATION_11_12)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
     }

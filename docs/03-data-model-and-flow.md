@@ -174,11 +174,15 @@ One document per child, plus one row per allowed app. The parent dashboard write
 
 ### Per allowed app
 
+At child creation / first inventory sync, every installed app is seeded **allowed** with
+`blockMinutes = AppConfig.DEFAULT_BLOCK_MINUTES` (15). Parents may turn apps off afterward;
+existing rules are never auto-overwritten when inventory refreshes.
+
 | Setting | Example | Effect |
 | --- | --- | --- |
 | `packageOrBundleId` | YouTube | Identity on that platform |
 | `allowed` | true | Icon / launch allowed |
-| `blockMinutes` | 30 | Use this long, then quiz |
+| `blockMinutes` | 15 (default) | Use this long, then quiz |
 | `grantOnPassMinutes` | 30 | Next block after a pass (defaults to `blockMinutes`) |
 | `cooldownMinutes` | 15 | On fail, shield **all non-emergency apps** for this long |
 | `isEmergency` | false | Skips quiz and cooldown |

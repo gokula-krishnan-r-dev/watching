@@ -138,9 +138,9 @@ Home replacement alone is not enough. The quiz must appear **when the block ends
 
 1. Child opens the app **from our Home**. We record `packageName` + `blockStartedAt`.
 2. A launcher-owned timer (in-process, persisted to Room every 30–60s) counts foreground time. Cross-check with Usage Stats if the permission is granted.
-3. At block end, start the quiz Activity (our task). Leaving the quiz without a pass does not restore apps.
+3. At block end, start the quiz interrupt. With Display-over-apps, host the quiz UI in a `TYPE_APPLICATION_OVERLAY` surface above other apps’ Picture-in-Picture windows and take audio focus so video audio pauses. Leaving the quiz without a pass does not restore apps.
 4. On fail, disable **every non-emergency icon** and show the lock until cooldown or a passed retry. Recents cannot reopen a blocked app. Phone stays launchable.
-5. We do **not** use Accessibility or Device Admin to trap the user. That fights Play policy. Default Home + our Activity + a disabled icon is the consumer approach.
+5. We do **not** use Accessibility or Device Admin to trap the user. That fights Play policy. Default Home + our Activity/overlay + a disabled icon is the consumer approach. We cannot programmatically dismiss another app’s PiP without privileged APIs — we cover it instead.
 6. If the child (or someone) clears the default Home role, the parent is notified. Until they set us as Home again, we cannot hide the stock drawer — say that plainly in the parent report.
 
 ---

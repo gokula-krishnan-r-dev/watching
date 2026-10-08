@@ -69,8 +69,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.meritscreen.core.common.domain.AgeBand
 import com.meritscreen.core.common.domain.AvatarPreset
 import com.meritscreen.core.common.domain.CustomPromptSanitizer
+import com.meritscreen.core.common.domain.LearningPromptQuickAdds
 import com.meritscreen.core.ui.theme.MeritColors
 import com.meritscreen.core.ui.theme.MeritSpacing
 import kotlinx.serialization.Serializable
@@ -81,6 +83,7 @@ data class AiLearningContextRoute(
     val childName: String = "your child",
     val grade: String = "3rd Grade",
     val avatar: String = "RABBIT",
+    val ageBand: String = AgeBand.AGE_7_TO_9.name,
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -88,6 +91,7 @@ data class AiLearningContextRoute(
 fun AiLearningContextScreen(
     childName: String = "your child",
     grade: String = "3rd Grade",
+    ageBand: AgeBand = AgeBand.AGE_7_TO_9,
     avatarEmoji: String = AvatarPreset.Default.emoji,
     initialPrompt: String = "",
     stepLabel: String = "AI Learning Profile",
@@ -431,23 +435,25 @@ fun AiLearningContextScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
+                val quickAdds = remember(ageBand, rawText) {
+                    LearningPromptQuickAdds.forAgeBand(ageBand, rawText)
+                }
+
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    listOf(
-                        "Weak in Math" to "Needs extra practice with fractions and mental subtraction.",
-                        "CBSE Board Focus" to "Following CBSE curriculum guidelines.",
-                        "Visual Learner" to "Responds best to visual cues, diagrams, and pictorial puzzles.",
-                        "Dyslexia Friendly" to "Prefers high contrast and dyslexia-friendly font presentation.",
-                        "Fast Reader" to "Reads beyond grade level; likes challenging comprehension prompts.",
-                    ).forEach { (label, snippet) ->
+                    quickAdds.forEach { chip ->
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = MeritColors.SurfaceContainerHigh,
                             modifier = Modifier.clickable {
-                                rawText = if (rawText.isBlank()) snippet else "$rawText $snippet"
+                                rawText = if (rawText.isBlank()) {
+                                    chip.snippet
+                                } else {
+                                    "$rawText ${chip.snippet}"
+                                }
                             },
                         ) {
                             Row(
@@ -462,7 +468,7 @@ fun AiLearningContextScreen(
                                     modifier = Modifier.size(14.dp),
                                 )
                                 Text(
-                                    text = label,
+                                    text = chip.label,
                                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
                                     color = MeritColors.OnSurface,
                                 )

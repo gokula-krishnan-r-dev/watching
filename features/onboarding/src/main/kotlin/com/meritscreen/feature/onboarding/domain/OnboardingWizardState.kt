@@ -1,5 +1,6 @@
 package com.meritscreen.feature.onboarding.domain
 
+import com.meritscreen.core.common.config.AppConfig
 import com.meritscreen.core.common.domain.AgeBand
 import com.meritscreen.core.common.domain.AppRule
 import com.meritscreen.core.common.domain.AvatarPreset
@@ -68,41 +69,50 @@ data class OnboardingWizardState(
     )
 }
 
-fun defaultOnboardingAppRules(): List<AppRule> = listOf(
-    AppRule(
-        appId = "duo_abc",
-        packageOrBundleId = "com.duolingo.kids",
-        displayName = "Duo ABC",
-        allowed = true,
-        blockMinutes = 0,
-    ),
-    AppRule(
-        appId = "khan_kids",
-        packageOrBundleId = "org.khankids.android",
-        displayName = "Khan Academy Kids",
-        allowed = true,
-        blockMinutes = 0,
-    ),
-    AppRule(
-        appId = "yt_kids",
-        packageOrBundleId = "com.google.android.apps.youtube.kids",
-        displayName = "YouTube Kids",
-        allowed = true,
-        blockMinutes = 30,
-        grantOnPassMinutes = 30,
-    ),
-    AppRule(
-        appId = "scratch_jr",
-        packageOrBundleId = "org.scratchjr.android",
-        displayName = "ScratchJr",
-        allowed = true,
-        blockMinutes = 0,
-    ),
-    AppRule(
-        appId = "roblox",
-        packageOrBundleId = "com.roblox.client",
-        displayName = "Roblox",
-        allowed = false,
-        blockMinutes = 15,
-    ),
-)
+fun defaultOnboardingAppRules(): List<AppRule> {
+    // Draft preview only — live allowlist seeds from the child's installed inventory
+    // (all allowed @ AppConfig.DEFAULT_BLOCK_MINUTES). Keep samples aligned with that default.
+    val block = AppConfig.DEFAULT_BLOCK_MINUTES
+    return listOf(
+        AppRule(
+            appId = "duo_abc",
+            packageOrBundleId = "com.duolingo.kids",
+            displayName = "Duo ABC",
+            allowed = true,
+            blockMinutes = block,
+            grantOnPassMinutes = block,
+        ),
+        AppRule(
+            appId = "khan_kids",
+            packageOrBundleId = "org.khankids.android",
+            displayName = "Khan Academy Kids",
+            allowed = true,
+            blockMinutes = block,
+            grantOnPassMinutes = block,
+        ),
+        AppRule(
+            appId = "yt_kids",
+            packageOrBundleId = "com.google.android.apps.youtube.kids",
+            displayName = "YouTube Kids",
+            allowed = true,
+            blockMinutes = block,
+            grantOnPassMinutes = block,
+        ),
+        AppRule(
+            appId = "scratch_jr",
+            packageOrBundleId = "org.scratchjr.android",
+            displayName = "ScratchJr",
+            allowed = true,
+            blockMinutes = block,
+            grantOnPassMinutes = block,
+        ),
+        AppRule(
+            appId = "roblox",
+            packageOrBundleId = "com.roblox.client",
+            displayName = "Roblox",
+            allowed = true,
+            blockMinutes = block,
+            grantOnPassMinutes = block,
+        ),
+    )
+}

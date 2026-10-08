@@ -100,20 +100,22 @@ class OnboardingWizardViewModel @Inject constructor(
         _uiState.update { current ->
             val updatedRules = when (presetName) {
                 "Balanced" -> current.appRules.map { rule ->
-                    if (rule.appId == "roblox") rule.withBlockDuration(allowed = false, minutes = 15)
-                    else rule.withBlockDuration(
+                    rule.withBlockDuration(
                         allowed = true,
-                        minutes = if (rule.appId == "yt_kids") 30 else 0,
+                        minutes = AppConfig.DEFAULT_BLOCK_MINUTES,
                     )
                 }
                 "Strict" -> current.appRules.map { rule ->
                     rule.withBlockDuration(
                         allowed = rule.appId == "duo_abc" || rule.appId == "khan_kids",
-                        minutes = 0,
+                        minutes = AppConfig.DEFAULT_BLOCK_MINUTES,
                     )
                 }
                 "Weekend" -> current.appRules.map { rule ->
-                    rule.withBlockDuration(allowed = true, minutes = 0)
+                    rule.withBlockDuration(
+                        allowed = true,
+                        minutes = AppConfig.DEFAULT_BLOCK_MINUTES,
+                    )
                 }
                 else -> current.appRules
             }

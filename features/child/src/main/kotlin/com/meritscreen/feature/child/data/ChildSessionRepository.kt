@@ -13,12 +13,20 @@ import javax.inject.Singleton
 class ChildSessionRepository @Inject constructor(
     private val dao: SessionStateDao,
 ) {
-    fun observe(): Flow<SessionSnapshot> = dao.observe().map { it?.toDomain() ?: SessionSnapshot() }
+    fun observe(childId: String): Flow<SessionSnapshot> =
+        dao.observe(childId).map { it?.toDomain() ?: SessionSnapshot() }
 
-    suspend fun get(): SessionSnapshot = dao.get()?.toDomain() ?: SessionSnapshot()
+    suspend fun get(childId: String): SessionSnapshot =
+        if (childId.isBlank()) SessionSnapshot() else dao.get(childId)?.toDomain() ?: SessionSnapshot()
 
-    suspend fun save(snapshot: SessionSnapshot) {
-        dao.upsert(snapshot.toEntity())
+    suspend fun save(childId: String, snapshot: SessionSnapshot) {
+        if (childId.isBlank()) return
+        dao.upsert(snapshot.toEntity(childId))
+    }
+
+    suspend fun clearForChild(childId: String) {
+        if (childId.isBlank()) return
+        dao.clearForChild(childId)
     }
 }
 
@@ -37,8 +45,8 @@ private fun SessionStateEntity.toDomain(): SessionSnapshot = SessionSnapshot(
     quizGraceUntilElapsedMs = quizGraceUntilElapsedMs,
 )
 
-private fun SessionSnapshot.toEntity(): SessionStateEntity = SessionStateEntity(
-    id = 1,
+private fun SessionSnapshot.toEntity(childId: String): SessionStateEntity = SessionStateEntity(
+    childId = childId,
     phase = phase.name,
     activePackage = activePackage,
     activeAppId = activeAppId,

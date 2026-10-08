@@ -23,4 +23,10 @@ data class PairingResult(
 interface PairingClient {
     suspend fun createToken(childId: String): PairingOffer
     suspend fun consumeToken(code: String, secret: String?, deviceId: String): PairingResult
+
+    /**
+     * Remints a child-device custom token for another already-paired sibling profile
+     * on the same physical [deviceId] (shared-tablet profile switch).
+     */
+    suspend fun activateChildOnDevice(childId: String, deviceId: String): PairingResult
 }

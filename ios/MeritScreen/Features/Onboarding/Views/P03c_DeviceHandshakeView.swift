@@ -106,7 +106,7 @@ public struct P03c_DeviceHandshakeView: View {
                         .foregroundColor(MeritColor.label)
                         .multilineTextAlignment(.center)
 
-                    Text("On the child tablet or phone, open MeritScreen and tap Scan Parent QR — or type the 6-digit code below.")
+                    Text("On the child tablet or phone, open Watching and tap Scan Parent QR — or type the 6-digit code below.")
                         .font(MeritTypography.body)
                         .foregroundColor(MeritColor.secondaryLabel)
                         .multilineTextAlignment(.center)

@@ -561,6 +561,7 @@ fun ChildParentMenuScreen(
     onBack: () -> Unit,
     onUnpaired: () -> Unit,
     onFailLockEnded: () -> Unit = onBack,
+    onSwitchChild: () -> Unit = {},
     viewModel: ChildParentMenuViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -697,6 +698,17 @@ fun ChildParentMenuScreen(
             onClick = viewModel::refreshRules,
             loading = busy,
             modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(MeritSpacing.md))
+        MeritSecondaryButton(
+            text = "Switch child profile",
+            onClick = onSwitchChild,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(MeritSpacing.xs))
+        ChildHelperText(
+            "Use Parent PIN (already entered) to pick another child on this shared device. Timers and rules switch with the profile.",
         )
         Spacer(Modifier.height(MeritSpacing.lg))
 

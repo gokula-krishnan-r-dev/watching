@@ -21,7 +21,7 @@ public struct C05_ChildHubView: View {
     public var body: some View {
         NavigationStack {
             mainScrollView
-                .navigationTitle("MeritScreen Hub")
+                .navigationTitle("Watching Hub")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
@@ -107,7 +107,7 @@ public struct C05_ChildHubView: View {
             viewModel: failVM,
             onRetryQuiz: {
                 let rule = viewModel.appRules.first { $0.allowed && !$0.isEmergency } ??
-                    AppRule(appId: "com.meritscreen.app", packageOrBundleId: "com.meritscreen.app", displayName: "Apps")
+                    AppRule(appId: "com.watching.app", packageOrBundleId: "com.watching.app", displayName: "Apps")
                 quizFlowViewModel = QuizFlowViewModel(
                     targetRule: rule,
                     isRetryMode: true,
@@ -167,7 +167,7 @@ public struct C05_ChildHubView: View {
     private var quizCover: some View {
         let activeQuizVM = quizFlowViewModel ?? QuizFlowViewModel(
             targetRule: viewModel.quizInterruptRule ?? (viewModel.appRules.first { $0.allowed && !$0.isEmergency } ??
-                AppRule(appId: "com.meritscreen.app", packageOrBundleId: "com.meritscreen.app", displayName: "Apps")),
+                AppRule(appId: "com.watching.app", packageOrBundleId: "com.watching.app", displayName: "Apps")),
             isRetryMode: viewModel.snapshot.phase == .shielded,
             childName: viewModel.childName,
             ageBand: viewModel.ageBand
@@ -441,7 +441,7 @@ public struct C05_ChildHubView: View {
                 ProgressView(value: viewModel.remainingBlockProgress, total: 1.0)
                     .tint(MeritColor.accent)
 
-                Text("Open approved apps from your Home Screen. When your block ends, MeritScreen will give you a quick quiz to unlock more time.")
+                Text("Open approved apps from your Home Screen. When your block ends, Watching will give you a quick quiz to unlock more time.")
                     .font(MeritTypography.caption)
                     .foregroundColor(MeritColor.secondaryLabel)
                     .multilineTextAlignment(.center)
@@ -642,7 +642,7 @@ public struct C05_ChildHubView: View {
                         .font(MeritTypography.headline)
                         .foregroundColor(MeritColor.label)
 
-                    Text("Tap to authorize Screen Time controls so MeritScreen can manage screen limits.")
+                    Text("Tap to authorize Screen Time controls so Watching can manage screen limits.")
                         .font(MeritTypography.caption)
                         .foregroundColor(MeritColor.secondaryLabel)
                         .multilineTextAlignment(.leading)
@@ -669,7 +669,7 @@ public struct C05_ChildHubView: View {
     private func checkPendingQuizFromExtension() {
         if let request = ScreenTimeSharedStore.shared.consumePendingQuizRequest() {
             let rule = viewModel.appRules.first { $0.allowed && !$0.isEmergency } ??
-                AppRule(appId: "com.meritscreen.app", packageOrBundleId: "com.meritscreen.app", displayName: "Apps")
+                AppRule(appId: "com.watching.app", packageOrBundleId: "com.watching.app", displayName: "Apps")
             let isRetry = request.isRetry || viewModel.showingFailLock || viewModel.snapshot.phase == .shielded
             quizFlowViewModel = QuizFlowViewModel(
                 targetRule: rule,

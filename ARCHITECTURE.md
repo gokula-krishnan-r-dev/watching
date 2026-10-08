@@ -53,6 +53,14 @@ A single Activity hosts Compose Navigation. `RoleGate` keys the `NavHost` on `De
 Cold start: `AppViewModel` reconciles Firebase Auth, `ParentSession`, and
 `ChildPairingStore` before emitting a role so splash stays up until the session is coherent.
 
+**Shared-device multi-child (Android):** One handset may hold up to
+`AppConfig.MAX_CHILDREN_PER_PARENT` paired profiles in a Keystore
+`ChildPairingRegistry`. Parent PIN unlocks Parent menu → **Switch child profile**;
+`SwitchActiveChildUseCase` flushes the outgoing session, remints Auth via callable
+`activateChildOnDevice`, reloads per-`childId` Room `session_state`, and restarts
+sync/heartbeat. Adding another child uses the same pairing code flow (PIN-gated)
+without clearing siblings. iOS/tablet parity can reuse the same registry + remint contract.
+
 Feature modules expose `NavGraphBuilder` extensions and `@Serializable` routes.
 
 ## Parent control data
@@ -98,11 +106,15 @@ assumed, and is re-evaluated if a future managed/BYOD SKU needs Device Owner.
   synchronous check (`RoleManager.isRoleHeld` / `PackageManager` resolve) called on Home
   `onResume` and by the heartbeat worker — never a background poll.
 - **Lock Task (screen pinning).** `LockTaskGuard` calls the public `Activity.startLockTask()` /
-  `stopLockTask()` APIs while the child is in the `Shielded` fail-lock state. Without Device
-  Owner, this is standard *screen pinning*: the system shows a "your parent may not be able to
-  unpin this" affordance and the user can always exit it by holding Back+Overview. It is a UX
-  deterrent layered on top of the real control (device-wide app block in `SessionEngine`), not
-  a hard security boundary — documented as such in the fail-lock UI copy.
+  `stopLockTask()` APIs only while Child Home is in fail-lock (`Shielded` or parent `paused`).
+  Pinning is owned by `ChildHomeScreen` (not `FailLockPane`): engage when fail-lock applies,
+  `ensureReleased` on playground / daily-cap, on every Home resume outside fail-lock, and via
+  `prepareExternalLaunch` immediately before any `startActivity` to another package (approved
+  apps, Phone, Camera, emergency). Residual pin after cooldown — common on Samsung/One UI —
+  otherwise blocks launches with the system “unpin this app” toast. Without Device Owner, this
+  is standard *screen pinning*: the user can always exit via long-press Back+Overview. It is a
+  UX deterrent on top of the real control (device-wide app block in `SessionEngine`), not a hard
+  security boundary — documented as such in the fail-lock UI copy.
 - **Installed-app inventory.** `InstalledAppsRepository` (`:features:applications`) queries
   `PackageManager` for `ACTION_MAIN`/`CATEGORY_LAUNCHER` activities once (app start / explicit
   refresh) and caches to Room (`installed_app`). Query flags stay at `0` /
@@ -132,6 +144,11 @@ assumed, and is re-evaluated if a future managed/BYOD SKU needs Device Owner.
 - **Screen-time integration.** The launcher and Home screen never duplicate `SessionEngine`
   logic; they only read its `SessionPhase` (`Idle`/`InBlock`/`QuizDue`/`Shielded`) plus the
   cached policy from Room. No launcher-side timer, no second source of truth.
+- **Quiz interrupt vs Picture-in-Picture.** `ChildTimeLimitOverlayActivity` hosts quiz Compose
+  in `InterruptSurfaceController` (`TYPE_APPLICATION_OVERLAY`) when Display-over-apps is
+  granted, so pinned PiP tasks (YouTube, etc.) cannot float above the quiz. Audio focus pauses
+  underlying media. There is no public API for a Play-installed app to *dismiss* another
+  package’s PiP; covering + pausing is the honest consumer approach (no Accessibility).
 
 ## Real-time synchronization (Phase 7)
 

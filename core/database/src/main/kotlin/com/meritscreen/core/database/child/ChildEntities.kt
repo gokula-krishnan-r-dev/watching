@@ -58,7 +58,8 @@ data class ChildProfileCacheEntity(
 
 @Entity(tableName = "session_state")
 data class SessionStateEntity(
-    @PrimaryKey val id: Int = 1,
+    /** One session row per child profile on a shared device. */
+    @PrimaryKey val childId: String,
     val phase: String,
     val activePackage: String?,
     val activeAppId: String?,

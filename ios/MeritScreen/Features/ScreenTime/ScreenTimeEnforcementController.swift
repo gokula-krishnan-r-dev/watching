@@ -5,16 +5,16 @@ import FamilyControls
 
 public extension DeviceActivityName {
     static var childDailyActivity: DeviceActivityName {
-        DeviceActivityName("com.meritscreen.child.activity")
+        DeviceActivityName("com.watching.child.activity")
     }
     static var childBedtimeActivity: DeviceActivityName {
-        DeviceActivityName("com.meritscreen.child.bedtime")
+        DeviceActivityName("com.watching.child.bedtime")
     }
 }
 
 public extension DeviceActivityEvent.Name {
     static var blockThresholdEvent: DeviceActivityEvent.Name {
-        DeviceActivityEvent.Name("com.meritscreen.child.block_threshold")
+        DeviceActivityEvent.Name("com.watching.child.block_threshold")
     }
 }
 

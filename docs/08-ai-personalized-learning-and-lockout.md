@@ -100,6 +100,18 @@ Add the three fields onto `ChildPolicy` (same Firestore document, `ChildPolicyMa
 | `region` | `IN` | Units, spelling, currency, curriculum flavour (₹ vs $, colour vs color, CBSE-style vs Common-Core-style) |
 | `customPromptGuidelines` | `"Focus more on multiplication"` | Weighted topic hints only — see prompt-injection defense |
 
+### Quick-add chips (age-banded)
+
+Parent Personalized Learning Guidance / AI Adaptive Settings show **Quick add** chips from `LearningPromptQuickAdds` in `:core:common`, keyed by the child's `AgeBand` (not a single static list):
+
+| Age band | Example chip themes |
+| --- | --- |
+| 3–6 | Letter sounds, counting play, colors & shapes, picture stories, gentle pace |
+| 7–9 | Math practice, reading & phonics, science curiosity, school curriculum |
+| 10–12 | Fractions/word problems, reading depth, board/exam focus, coding & logic |
+
+Chips append sanitized topic-weight snippets into `customPromptGuidelines`. Already-applied snippets are hidden so parents do not re-tap duplicates. Snippets must pass `CustomPromptSanitizer` (unit-tested).
+
 ### Grade presets (parent picker, not a hard enum)
 
 Free text is allowed; the picker offers region-aware chips. The engine never infers grade from age automatically.

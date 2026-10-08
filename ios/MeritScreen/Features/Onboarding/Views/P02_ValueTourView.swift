@@ -24,7 +24,7 @@ public struct P02_ValueTourView: View {
             stepLabel: "Step 1 of 3",
             title: "Learn first. Then play.",
             subtitle: "Kids answer short AI-powered questions on their phone. Pass the quiz, unlock screen time. Fail, and entertainment stays paused until they try again.",
-            highlight: "MeritScreen turns screen time into a daily trainer — adaptive quizzes build math, reading, and logic skills.",
+            highlight: "Watching turns screen time into a daily trainer — adaptive quizzes build math, reading, and logic skills.",
             pills: [
                 ("brain.head.profile", "AI training quizzes"),
                 ("iphone", "Phone as classroom"),
@@ -35,7 +35,7 @@ public struct P02_ValueTourView: View {
             id: 1,
             stepLabel: "Step 2 of 3",
             title: "Only apps you approve",
-            subtitle: "MeritScreen acts as the child's safe space. Entertainment stays behind the quiz gate, while learning and emergency calls always remain accessible.",
+            subtitle: "Watching acts as the child's safe space. Entertainment stays behind the quiz gate, while learning and emergency calls always remain accessible.",
             highlight: "Parents set the allowlist once, and the device enforces it offline with zero loopholes.",
             pills: [
                 ("shield.fill", "Launcher lock"),

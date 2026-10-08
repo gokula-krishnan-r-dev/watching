@@ -94,7 +94,7 @@ The quiz must interrupt the app, not wait until the child happens to press Home.
 
 | Platform | How the popup is shown |
 | --- | --- |
-| **Android** | Launcher-owned timer. When the block ends, MeritScreen brings the quiz Activity to the front. On fail, **every non-emergency icon is disabled** and Home shows the cooldown lock. Recents cannot reopen a shielded app. |
+| **Android** | Launcher-owned timer. When the block ends, MeritScreen brings the quiz interrupt to the front. With **Display over other apps**, the quiz UI is hosted in a `TYPE_APPLICATION_OVERLAY` surface (`InterruptSurfaceController`) so YouTube/other **Picture-in-Picture** windows cannot float above the questions; media is paused via audio focus. Without that permission, Activity fallback is used and PiP may remain visible (documented OS limit — no public API to dismiss another app’s PiP). On fail, **every non-emergency icon is disabled** and Home shows the cooldown lock. Best-effort screen pinning (`LockTaskGuard`) applies **only** during fail-lock; Home must `ensureReleased` before launching approved apps so residual pin never blocks YouTube with the system “unpin” toast. |
 | **iOS** | `DeviceActivity` threshold fires. On fail, `ManagedSettings` shields **the full allowed set** except emergency apps. Shield action opens the SwiftUI retry quiz. Pass or cooldown clears the whole shield. |
 | **Desktop (Windows / macOS / Linux)** | Guardian monotonic active-use clock. When the block or device interval ends, Session Agent raises a **topmost quiz overlay with no skip**. On fail, overlay + process/window gating covers or terminates all non-emergency apps. Killing the UI respawns it; persisted `quiz_due` / `shielded` does not clear. See [15](15-desktop-native-production.md). |
 

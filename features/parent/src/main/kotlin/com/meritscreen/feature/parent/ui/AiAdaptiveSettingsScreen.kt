@@ -60,7 +60,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.meritscreen.core.common.config.AppConfig
+import com.meritscreen.core.common.domain.AgeBand
 import com.meritscreen.core.common.domain.ChildPolicy
+import com.meritscreen.core.common.domain.LearningPromptQuickAdds
 import com.meritscreen.core.common.domain.LearningRegion
 import com.meritscreen.core.common.domain.QuizMode
 import com.meritscreen.core.common.ui.UiState
@@ -81,6 +83,7 @@ fun QuizSettingsScreen(
     viewModel: PolicyEditorViewModel = hiltViewModel(),
 ) {
     val state by viewModel.policy.collectAsStateWithLifecycle()
+    val ageBand by viewModel.ageBand.collectAsStateWithLifecycle()
     val saving by viewModel.saving.collectAsStateWithLifecycle()
     val saved by viewModel.saved.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
@@ -98,6 +101,7 @@ fun QuizSettingsScreen(
         is UiState.Error -> ErrorState(message = current.error.userMessage, onRetry = viewModel::refresh)
         is UiState.Success -> AiAdaptiveSettingsContent(
             policy = current.data,
+            ageBand = ageBand,
             saving = saving,
             error = error,
             onUpdatePolicy = viewModel::update,
@@ -112,6 +116,7 @@ fun QuizSettingsScreen(
 fun AiAdaptiveSettingsContent(
     modifier: Modifier = Modifier,
     policy: ChildPolicy,
+    ageBand: AgeBand = AgeBand.AGE_7_TO_9,
     saving: Boolean = false,
     error: String? = null,
     childName: String = "your child",
@@ -122,14 +127,8 @@ fun AiAdaptiveSettingsContent(
     val promptMax = AppConfig.CUSTOM_PROMPT_GUIDELINES_MAX_CHARS
     val promptLen = policy.customPromptGuidelines.length
     val gradePresets = remember(policy.region) { GradeStandardPresets.forRegion(policy.region) }
-    val promptPresets = remember {
-        listOf(
-            "Weak in Math" to "Needs extra practice with fractions and mental subtraction.",
-            "CBSE Board Focus" to "Following CBSE curriculum guidelines.",
-            "Visual Learner" to "Responds best to visual cues, diagrams, and pictorial puzzles.",
-            "Dyslexia Friendly" to "Prefers high contrast and dyslexia-friendly presentation.",
-            "Fast Reader" to "Reads beyond grade level; likes challenging comprehension prompts.",
-        )
+    val promptPresets = remember(ageBand, policy.customPromptGuidelines) {
+        LearningPromptQuickAdds.forAgeBand(ageBand, policy.customPromptGuidelines)
     }
 
     Surface(
@@ -378,12 +377,13 @@ fun AiAdaptiveSettingsContent(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        promptPresets.forEach { (label, snippet) ->
+                        promptPresets.forEach { chip ->
                             Surface(
                                 shape = RoundedCornerShape(20.dp),
                                 color = MeritColors.SurfaceContainerHigh,
                                 modifier = Modifier.clickable {
                                     onUpdatePolicy { current ->
+                                        val snippet = chip.snippet
                                         val next = if (current.customPromptGuidelines.isBlank()) {
                                             snippet
                                         } else {
@@ -405,7 +405,7 @@ fun AiAdaptiveSettingsContent(
                                         modifier = Modifier.size(14.dp),
                                     )
                                     Text(
-                                        text = label,
+                                        text = chip.label,
                                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
                                         color = MeritColors.OnSurface,
                                     )

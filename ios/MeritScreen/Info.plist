@@ -10,8 +10,10 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CFBundleDisplayName</key>
+	<string>Watching</string>
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>Watching</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -19,7 +21,7 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSCameraUsageDescription</key>
-	<string>MeritScreen requires camera access to scan the pairing QR code from the parent device.</string>
+	<string>Watching requires camera access to scan the pairing QR code from the parent device.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
@@ -28,9 +30,9 @@
 	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.meritscreen.child.heartbeat</string>
-		<string>com.meritscreen.child.policy_sync</string>
-		<string>com.meritscreen.child.usage_upload</string>
+		<string>com.watching.child.heartbeat</string>
+		<string>com.watching.child.policy_sync</string>
+		<string>com.watching.child.usage_upload</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

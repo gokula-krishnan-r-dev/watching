@@ -3,9 +3,9 @@ import ManagedSettings
 import os
 
 /// Handles user actions triggered from the system shield.
-/// Clicking "Take Quiz" or "Retry Quiz Now" routes the child back to MeritScreen to attempt the quiz.
+/// Clicking "Take Quiz" or "Retry Quiz Now" routes the child back to Watching to attempt the quiz.
 final class ShieldActionExtension: ShieldActionDelegate {
-    private let logger = Logger(subsystem: "com.meritscreen.app.shieldaction", category: "Action")
+    private let logger = Logger(subsystem: "com.watching.app.shieldaction", category: "Action")
     private let sharedStore = ScreenTimeSharedStore.shared
 
     override func handle(

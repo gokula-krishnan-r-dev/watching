@@ -5,6 +5,8 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
 import androidx.navigation.toRoute
+import com.meritscreen.feature.authentication.ui.ChildPairingScreen
+import com.meritscreen.feature.child.ui.ChildAddProfilePairingRoute
 import com.meritscreen.feature.child.ui.ChildHomeRoute
 import com.meritscreen.feature.child.ui.ChildHomeScreen
 import com.meritscreen.feature.child.ui.ChildNotAllowedRoute
@@ -18,6 +20,8 @@ import com.meritscreen.feature.child.ui.ChildQuizScreen
 import com.meritscreen.feature.child.ui.ChildRoute
 import com.meritscreen.feature.child.ui.ChildStickerBookRoute
 import com.meritscreen.feature.child.ui.ChildStickerBookScreen
+import com.meritscreen.feature.child.ui.ChildSwitchProfileRoute
+import com.meritscreen.feature.child.ui.ChildSwitchProfileScreen
 import com.meritscreen.feature.launcher.LauncherSetupRoute
 
 fun NavGraphBuilder.childGraph(
@@ -66,7 +70,6 @@ fun NavGraphBuilder.childGraph(
                     }
                 },
                 onUnlockedEndFailLock = {
-                    // Leave quiz + PIN and land on Home with fail lock already cleared.
                     navController.popBackStack(ChildHomeRoute, inclusive = false)
                 },
                 onBack = { navController.popBackStack() },
@@ -79,6 +82,28 @@ fun NavGraphBuilder.childGraph(
                 onFailLockEnded = {
                     navController.popBackStack(ChildHomeRoute, inclusive = false)
                 },
+                onSwitchChild = {
+                    navController.navigate(ChildSwitchProfileRoute)
+                },
+            )
+        }
+        composable<ChildSwitchProfileRoute> {
+            ChildSwitchProfileScreen(
+                onSwitched = {
+                    navController.popBackStack(ChildHomeRoute, inclusive = false)
+                },
+                onBack = { navController.popBackStack() },
+                onAddAnotherChild = {
+                    navController.navigate(ChildAddProfilePairingRoute)
+                },
+            )
+        }
+        composable<ChildAddProfilePairingRoute> {
+            ChildPairingScreen(
+                onPaired = {
+                    navController.popBackStack(ChildSwitchProfileRoute, inclusive = false)
+                },
+                onBack = { navController.popBackStack() },
             )
         }
         composable<ChildNotAllowedRoute> {

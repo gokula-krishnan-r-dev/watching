@@ -3,9 +3,9 @@ import UserNotifications
 import UIKit
 
 public extension Notification.Name {
-    static let childDeviceRevoked = Notification.Name("com.meritscreen.notification.device_revoked")
-    static let childFamilyDeleted = Notification.Name("com.meritscreen.notification.family_deleted")
-    static let parentDeepLinkRequested = Notification.Name("com.meritscreen.notification.parent_deep_link")
+    static let childDeviceRevoked = Notification.Name("com.watching.notification.device_revoked")
+    static let childFamilyDeleted = Notification.Name("com.watching.notification.family_deleted")
+    static let parentDeepLinkRequested = Notification.Name("com.watching.notification.parent_deep_link")
 }
 
 /// Central router for dispatching incoming FCM / APNs remote notifications.

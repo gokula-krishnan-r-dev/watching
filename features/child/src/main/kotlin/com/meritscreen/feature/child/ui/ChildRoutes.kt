@@ -27,6 +27,13 @@ data class ChildPinRoute(
 data object ChildParentMenuRoute
 
 @Serializable
+data object ChildSwitchProfileRoute
+
+/** PIN-gated path to pair an additional sibling on this shared device. */
+@Serializable
+data object ChildAddProfilePairingRoute
+
+@Serializable
 data object ChildNotAllowedRoute
 
 @Serializable

@@ -93,7 +93,7 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
                     color: UIColor.lightGray
                 ),
                 primaryButtonLabel: ShieldConfiguration.Label(
-                    text: "Open MeritScreen Hub",
+                    text: "Open Watching Hub",
                     color: UIColor.white
                 ),
                 primaryButtonBackgroundColor: UIColor.systemTeal,
@@ -109,11 +109,11 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
                     color: UIColor.label
                 ),
                 subtitle: ShieldConfiguration.Label(
-                    text: "This app is supervised by MeritScreen.",
+                    text: "This app is supervised by Watching.",
                     color: UIColor.secondaryLabel
                 ),
                 primaryButtonLabel: ShieldConfiguration.Label(
-                    text: "Open MeritScreen",
+                    text: "Open Watching",
                     color: UIColor.white
                 ),
                 primaryButtonBackgroundColor: UIColor.systemTeal,
@@ -138,7 +138,7 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
                 color: UIColor.label
             ),
             subtitle: ShieldConfiguration.Label(
-                text: "This website is paused by MeritScreen.",
+                text: "This website is paused by Watching.",
                 color: UIColor.secondaryLabel
             ),
             primaryButtonLabel: ShieldConfiguration.Label(

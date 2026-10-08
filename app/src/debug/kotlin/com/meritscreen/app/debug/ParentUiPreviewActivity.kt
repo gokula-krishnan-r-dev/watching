@@ -888,6 +888,7 @@ fun ParentUiPreviewRoot(
                     AiLearningContextScreen(
                         childName = previewChildName,
                         grade = previewGrade,
+                        ageBand = previewBand,
                         avatarEmoji = previewAvatar.emoji,
                         onContinue = { currentScreen = PreviewScreen.SETUP_COMPLETE },
                         onBack = { currentScreen = PreviewScreen.SET_PARENT_PIN },
