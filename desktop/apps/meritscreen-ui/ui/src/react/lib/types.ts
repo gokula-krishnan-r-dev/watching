@@ -81,3 +81,27 @@ export interface NotificationPrefs {
   failLockAlerts: boolean;
   tamperAlerts: boolean;
 }
+export interface AppMinutesRollup {
+  appId: string;
+  displayName: string;
+  minutes: number;
+  percentage: number;
+}
+export interface DailyMinutesPoint {
+  date: string;
+  totalMinutes: number;
+  quizMinutes: number;
+}
+export interface ChildReportsSnapshot {
+  childId: string;
+  childName: string;
+  todayMinutes: number;
+  todayQuizMinutes: number;
+  weeklyTotalMinutes: number;
+  weeklyQuizMinutes: number;
+  dailyAverageMinutes: number;
+  topApps: AppMinutesRollup[];
+  dailyTrend: DailyMinutesPoint[];
+  quizStats: { totalAttempts: number; passes: number; passRatePercent: number; totalQuizMinutes: number };
+  syncStatus: string;
+}

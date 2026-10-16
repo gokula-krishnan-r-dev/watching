@@ -9,3 +9,6 @@ export { DashboardScreen } from "./screens/dashboard";
 export { ChildDetailScreen } from "./screens/child-detail";
 export { PolicyScreen } from "./screens/policy-screens";
 export { AllowlistScreen } from "./screens/allowlist";
+export { ReportsScreen } from "./screens/reports";
+export { AccountScreen, NotificationsScreen, DeleteFamilyScreen } from "./screens/account";
+export { PairingScreen } from "./screens/pairing";
