@@ -8,6 +8,7 @@
 
 pub mod models;
 pub mod oauth;
+pub mod remote;
 pub mod session;
 
 pub use models::{

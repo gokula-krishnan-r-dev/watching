@@ -247,6 +247,11 @@ async fn parent_verify_otp(
         .verify_email_otp(&email, &code)
         .await
         .map_err(|e| e.user_message().to_string())?;
+    // Pull an existing family (e.g. created on Android) so desktop shows the same children.
+    if let Err(e) = state.parent.hydrate_from_remote().await {
+        tracing::warn!(error = ?e, "family hydrate after sign-in failed");
+    }
+    let profile = state.parent.profile().unwrap_or(profile);
     *state.role.lock().expect("role lock") = DeviceRole::Parent;
     if let Some(tray) = app.tray_by_id("main") {
         #[cfg(target_os = "macos")]
@@ -277,7 +282,7 @@ fn parent_apple_sign_in(state: State<'_, AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn parent_onboard(
+async fn parent_onboard(
     child_name: String,
     age_band: String,
     pin: String,
@@ -285,7 +290,8 @@ fn parent_onboard(
 ) -> Result<ChildCard, String> {
     state
         .parent
-        .commit_onboarding(&child_name, &age_band, &pin)
+        .onboard_synced(&child_name, &age_band, &pin)
+        .await
         .map_err(|e| e.user_message().into())
 }
 
@@ -306,50 +312,54 @@ fn parent_child_detail(
 }
 
 #[tauri::command]
-fn parent_update_policy(
+async fn parent_update_policy(
     child_id: String,
     policy: ChildPolicy,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     state
         .parent
-        .update_policy(&child_id, policy)
+        .update_policy_synced(&child_id, policy)
+        .await
         .map_err(|e| e.user_message().into())
 }
 
 #[tauri::command]
-fn parent_update_app_rules(
+async fn parent_update_app_rules(
     child_id: String,
     rules: Vec<meritscreen_core::AppRule>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     state
         .parent
-        .update_app_rules(&child_id, rules)
+        .update_app_rules_synced(&child_id, rules)
+        .await
         .map_err(|e| e.user_message().into())
 }
 
 #[tauri::command]
-fn parent_add_child(
+async fn parent_add_child(
     child_name: String,
     age_band: String,
     state: State<'_, AppState>,
 ) -> Result<ChildCard, String> {
     state
         .parent
-        .add_child(&child_name, &age_band)
+        .add_child_synced(&child_name, &age_band)
+        .await
         .map_err(|e| e.user_message().into())
 }
 
 #[tauri::command]
-fn parent_remove_child(
+async fn parent_remove_child(
     child_id: String,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     state
         .parent
-        .remove_child(&child_id)
+        .remove_child_synced(&child_id)
+        .await
         .map_err(|e| e.user_message().to_string())?;
 
     // If local child was active or paired, unpair cleanly and stop background service
@@ -375,14 +385,15 @@ fn parent_remove_child(
 }
 
 #[tauri::command]
-fn parent_unpair_device(
+async fn parent_unpair_device(
     child_id: String,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ChildDetail, String> {
     state
         .parent
-        .unpair_device(&child_id)
+        .unpair_device_synced(&child_id)
+        .await
         .map_err(|e| e.user_message().to_string())?;
 
     // If local child was active or paired, unpair cleanly and stop background service
@@ -435,10 +446,11 @@ fn parent_mark_paired(
 }
 
 #[tauri::command]
-fn parent_reset_pin(pin: String, state: State<'_, AppState>) -> Result<(), String> {
+async fn parent_reset_pin(pin: String, state: State<'_, AppState>) -> Result<(), String> {
     state
         .parent
-        .reset_pin(&pin)
+        .reset_pin_synced(&pin)
+        .await
         .map_err(|e| e.user_message().into())
 }
 
@@ -448,15 +460,34 @@ fn parent_notification_prefs(state: State<'_, AppState>) -> NotificationPrefs {
 }
 
 #[tauri::command]
-fn parent_set_notification_prefs(prefs: NotificationPrefs, state: State<'_, AppState>) {
-    state.parent.set_notification_prefs(prefs);
+async fn parent_set_notification_prefs(
+    prefs: NotificationPrefs,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .parent
+        .set_notification_prefs_synced(prefs)
+        .await
+        .map_err(|e| e.user_message().into())
+}
+
+/// Re-pull family/children/policies from Firestore (dashboard refresh).
+#[tauri::command]
+async fn parent_refresh(state: State<'_, AppState>) -> Result<UiStateDto<DashboardSnapshot>, String> {
+    state
+        .parent
+        .hydrate_from_remote()
+        .await
+        .map_err(|e| e.user_message().to_string())?;
+    Ok(map_ui_state(state.parent.dashboard()))
 }
 
 #[tauri::command]
-fn parent_delete_family(state: State<'_, AppState>) -> Result<(), String> {
+async fn parent_delete_family(state: State<'_, AppState>) -> Result<(), String> {
     state
         .parent
-        .delete_family()
+        .delete_family_synced()
+        .await
         .map_err(|e| e.user_message().into())
 }
 
@@ -1372,6 +1403,7 @@ pub fn run() {
             parent_apple_sign_in,
             parent_onboard,
             parent_dashboard,
+            parent_refresh,
             parent_child_detail,
             parent_update_policy,
             parent_update_app_rules,

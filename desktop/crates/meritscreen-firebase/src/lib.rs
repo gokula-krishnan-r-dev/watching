@@ -14,7 +14,7 @@ pub mod rest_sync;
 pub mod traits;
 
 pub use child_sync::{
-    policy_from_value, ChildRemoteClient, DeviceIds, DeviceStatus, PolicyBundle, QuizAttemptUpload,
+    app_rule_from_value, policy_from_value, to_firestore_fields, ChildRemoteClient, DeviceIds, DeviceStatus, PolicyBundle, QuizAttemptUpload,
     SkillStateUpload, UsageDayUpload,
 };
 pub use error::{FirebaseError, FirebaseResult};

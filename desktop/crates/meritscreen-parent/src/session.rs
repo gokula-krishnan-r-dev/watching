@@ -11,7 +11,8 @@ use meritscreen_core::app_config::{
 };
 use meritscreen_core::{AppError, AppRule, ChildPolicy, FailLockScope, QuizMode, UiState};
 use meritscreen_firebase::traits::{AuthClient, AuthTokens, CallableClient};
-use meritscreen_firebase::{FirebaseConfig, RestAuthClient, RestCallableClient};
+use meritscreen_firebase::{FirebaseConfig, RestAuthClient, RestCallableClient, RestFirestoreClient};
+use crate::remote::{ui_age_band, ParentRemote};
 use meritscreen_security::{accounts, hash_parent_pin, verify_parent_pin, SecretStore};
 use parking_lot::Mutex;
 use rand::Rng;
@@ -179,6 +180,7 @@ pub struct ParentSession {
     google_client_id: Option<String>,
     session_path: Option<PathBuf>,
     secret_store: Option<SecretStore>,
+    remote: Option<ParentRemote>,
 }
 
 impl Default for ParentSession {
@@ -204,7 +206,14 @@ impl ParentSession {
             google_client_id: std::env::var("MERITSCREEN_GOOGLE_CLIENT_ID").ok(),
             session_path: None,
             secret_store: None,
+            remote: None,
         }
+    }
+
+    /// Attach the Firestore parent store (live mode).
+    pub fn with_remote(mut self, remote: ParentRemote) -> Self {
+        self.remote = Some(remote);
+        self
     }
 
     pub fn with_backends(callables: Arc<dyn CallableClient>, auth: Arc<dyn AuthClient>) -> Self {
@@ -258,10 +267,14 @@ impl ParentSession {
             project_id: project_id.clone(),
         };
         info!(%project_id, "parent session: live Firebase REST backends");
-        let mut s = Self::with_backends(
-            Arc::new(RestCallableClient::new(config.clone())),
-            Arc::new(RestAuthClient::new(config)),
+        let callables: Arc<dyn CallableClient> = Arc::new(RestCallableClient::new(config.clone()));
+        let remote = ParentRemote::new(
+            Arc::new(RestFirestoreClient::new(config.clone())),
+            Arc::clone(&callables),
+            project_id.clone(),
         );
+        let mut s = Self::with_backends(callables, Arc::new(RestAuthClient::new(config)))
+            .with_remote(remote);
         s.session_path = session_path;
         s.secret_store = Some(SecretStore::platform());
         s.restore_persisted_session();
@@ -1658,6 +1671,264 @@ mod tests {
         // Pairing code can be consumed locally
         let target_child = s.consume_pairing(&offer.code, "macos").unwrap();
         assert_eq!(target_child, child.child_id);
+    }
+}
+
+struct RemoteCtx {
+    remote: ParentRemote,
+    token: String,
+    uid: String,
+    email: String,
+    family_id: Option<String>,
+}
+
+#[derive(Clone)]
+struct Snapshot {
+    profile: Option<ParentProfile>,
+    children: HashMap<String, ChildRecord>,
+    pin_hash: Option<String>,
+    notifications: NotificationPrefs,
+}
+
+/// Firestore-backed (write-through) parent operations. In live mode the remote
+/// write must succeed; on failure local state is rolled back and the error is
+/// returned so the UI can show it. Demo/offline mode is local-only.
+impl ParentSession {
+    pub fn has_remote(&self) -> bool {
+        self.remote.is_some()
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        let g = self.inner.lock();
+        Snapshot {
+            profile: g.profile.clone(),
+            children: g.children.clone(),
+            pin_hash: g.pin_hash.clone(),
+            notifications: g.notifications.clone(),
+        }
+    }
+
+    fn restore(&self, snap: Snapshot) {
+        {
+            let mut g = self.inner.lock();
+            g.profile = snap.profile;
+            g.children = snap.children;
+            g.pin_hash = snap.pin_hash;
+            g.notifications = snap.notifications;
+        }
+        self.persist_session();
+    }
+
+    async fn remote_ctx(&self) -> Result<Option<RemoteCtx>, AppError> {
+        let Some(remote) = self.remote.clone() else {
+            return Ok(None);
+        };
+        let profile = self.profile().ok_or_else(|| AppError::auth_msg("Sign in to continue."))?;
+        // Dev tester/demo sessions have no real Firebase identity.
+        if profile.uid.starts_with("tester-") || profile.uid.starts_with("demo-") {
+            return Ok(None);
+        }
+        let token = self
+            .ensure_id_token()
+            .await
+            .ok_or_else(|| AppError::auth_msg("Your session expired. Sign in again."))?;
+        Ok(Some(RemoteCtx {
+            remote,
+            token,
+            uid: profile.uid,
+            email: profile.email,
+            family_id: profile.family_id,
+        }))
+    }
+
+    async fn run_synced<F, Fut>(&self, snap: Snapshot, f: F) -> Result<(), AppError>
+    where
+        F: FnOnce(RemoteCtx) -> Fut,
+        Fut: std::future::Future<Output = Result<(), AppError>>,
+    {
+        match self.remote_ctx().await {
+            Ok(None) => Ok(()),
+            Ok(Some(ctx)) => match f(ctx).await {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    tracing::warn!(error = ?e, "remote write failed; rolling back");
+                    self.restore(snap);
+                    Err(e)
+                }
+            },
+            Err(e) => {
+                self.restore(snap);
+                Err(e)
+            }
+        }
+    }
+
+    /// After sign-in: pull an existing family (e.g. created on Android) into local state.
+    /// Returns true if a family exists.
+    pub async fn hydrate_from_remote(&self) -> Result<bool, AppError> {
+        let Some(ctx) = self.remote_ctx().await? else {
+            return Ok(self.profile().and_then(|p| p.family_id).is_some());
+        };
+        let Some(fam) = ctx.remote.load_family(&ctx.uid, &ctx.token).await? else {
+            return Ok(false);
+        };
+        {
+            let mut g = self.inner.lock();
+            if let Some(p) = g.profile.as_mut() {
+                p.family_id = Some(fam.family_id.clone());
+            }
+            if fam.parent_pin_hash.is_some() {
+                g.pin_hash = fam.parent_pin_hash.clone();
+            }
+            let mut next = HashMap::new();
+            for rc in fam.children {
+                let mut rec = g.children.remove(&rc.child_id).unwrap_or_else(|| {
+                    ChildRecord::new(ChildCard {
+                        child_id: rc.child_id.clone(),
+                        display_name: String::new(),
+                        age_band: String::new(),
+                        minutes_used_today: 0,
+                        minutes_remaining_today: None,
+                        paired_device_count: 0,
+                        platform_hint: None,
+                        quiz_mode: QuizMode::AppBlock,
+                    })
+                });
+                rec.card.display_name = rc.display_name;
+                rec.card.age_band = ui_age_band(&rc.age_band);
+                rec.card.quiz_mode = rc.policy.quiz_mode;
+                rec.card.paired_device_count = rc.paired_device_count;
+                rec.policy = rc.policy;
+                if !rc.app_rules.is_empty() {
+                    rec.app_rules = rc.app_rules;
+                }
+                next.insert(rc.child_id, rec);
+            }
+            g.children = next;
+        }
+        self.persist_session();
+        Ok(true)
+    }
+
+    pub async fn onboard_synced(&self, child_name: &str, age_band: &str, pin: &str) -> Result<ChildCard, AppError> {
+        let snap = self.snapshot();
+        let had_family = snap.profile.as_ref().and_then(|p| p.family_id.clone()).is_some();
+        let card = self.commit_onboarding(child_name, age_band, pin)?;
+        let (pin_hash, policy) = {
+            let g = self.inner.lock();
+            (
+                g.pin_hash.clone().unwrap_or_default(),
+                g.children.get(&card.child_id).map(|r| r.policy.clone()).unwrap_or_default(),
+            )
+        };
+        let family_id = self.profile().and_then(|p| p.family_id).unwrap_or_default();
+        let c = card.clone();
+        self.run_synced(snap, |ctx| async move {
+            if had_family {
+                ctx.remote
+                    .upsert_child(&family_id, &c.child_id, &c.display_name, &c.age_band, &policy, &ctx.token)
+                    .await?;
+                ctx.remote.set_pin_hash(&family_id, &pin_hash, &ctx.token).await
+            } else {
+                ctx.remote
+                    .create_family(&ctx.uid, &ctx.email, &family_id, &pin_hash, &c.child_id, &c.display_name, &c.age_band, &policy, &ctx.token)
+                    .await
+            }
+        })
+        .await?;
+        Ok(card)
+    }
+
+    pub async fn add_child_synced(&self, child_name: &str, age_band: &str) -> Result<ChildCard, AppError> {
+        let snap = self.snapshot();
+        let card = self.add_child(child_name, age_band)?;
+        let policy = self.inner.lock().children.get(&card.child_id).map(|r| r.policy.clone()).unwrap_or_default();
+        let c = card.clone();
+        self.run_synced(snap, |ctx| async move {
+            let fam = ctx.family_id.ok_or_else(|| AppError::validation("Finish family setup first."))?;
+            ctx.remote.upsert_child(&fam, &c.child_id, &c.display_name, &c.age_band, &policy, &ctx.token).await
+        })
+        .await?;
+        Ok(card)
+    }
+
+    pub async fn remove_child_synced(&self, child_id: &str) -> Result<(), AppError> {
+        let snap = self.snapshot();
+        self.remove_child(child_id)?;
+        let id = child_id.to_string();
+        self.run_synced(snap, |ctx| async move {
+            let fam = ctx.family_id.ok_or_else(AppError::not_found)?;
+            ctx.remote.delete_child(&fam, &id, &ctx.token).await
+        })
+        .await
+    }
+
+    pub async fn update_policy_synced(&self, child_id: &str, policy: ChildPolicy) -> Result<(), AppError> {
+        let snap = self.snapshot();
+        self.update_policy(child_id, policy)?;
+        let stored = self.inner.lock().children.get(child_id).map(|r| r.policy.clone()).unwrap_or_default();
+        let id = child_id.to_string();
+        self.run_synced(snap, |ctx| async move {
+            let fam = ctx.family_id.ok_or_else(AppError::not_found)?;
+            ctx.remote.write_policy(&fam, &id, &stored, &ctx.token).await
+        })
+        .await
+    }
+
+    pub async fn update_app_rules_synced(&self, child_id: &str, rules: Vec<AppRule>) -> Result<(), AppError> {
+        let snap = self.snapshot();
+        self.update_app_rules(child_id, rules.clone())?;
+        let id = child_id.to_string();
+        self.run_synced(snap, |ctx| async move {
+            let fam = ctx.family_id.ok_or_else(AppError::not_found)?;
+            ctx.remote.write_app_rules(&fam, &id, &rules, &ctx.token).await
+        })
+        .await
+    }
+
+    pub async fn reset_pin_synced(&self, new_pin: &str) -> Result<(), AppError> {
+        let snap = self.snapshot();
+        self.reset_pin(new_pin)?;
+        let hash = self.pin_hash().unwrap_or_default();
+        self.run_synced(snap, |ctx| async move {
+            let fam = ctx.family_id.ok_or_else(|| AppError::validation("Finish family setup first."))?;
+            ctx.remote.set_pin_hash(&fam, &hash, &ctx.token).await
+        })
+        .await
+    }
+
+    pub async fn set_notification_prefs_synced(&self, prefs: NotificationPrefs) -> Result<(), AppError> {
+        let snap = self.snapshot();
+        self.set_notification_prefs(prefs.clone());
+        let v = serde_json::to_value(&prefs).unwrap_or_default();
+        self.run_synced(snap, |ctx| async move {
+            ctx.remote.set_notification_prefs(&ctx.uid, &v, &ctx.token).await
+        })
+        .await
+    }
+
+    pub async fn unpair_device_synced(&self, child_id: &str) -> Result<(), AppError> {
+        let snap = self.snapshot();
+        self.unpair_device(child_id)?;
+        let id = child_id.to_string();
+        self.run_synced(snap, |ctx| async move {
+            let fam = ctx.family_id.ok_or_else(AppError::not_found)?;
+            ctx.remote.revoke_devices(&fam, &id, &ctx.token).await
+        })
+        .await
+    }
+
+    pub async fn delete_family_synced(&self) -> Result<(), AppError> {
+        let snap = self.snapshot();
+        let family_id = snap.profile.as_ref().and_then(|p| p.family_id.clone());
+        self.delete_family()?;
+        self.run_synced(snap, |ctx| async move {
+            match family_id {
+                Some(f) => ctx.remote.delete_family(&f, &ctx.token).await,
+                None => Ok(()),
+            }
+        })
+        .await
     }
 }
 
