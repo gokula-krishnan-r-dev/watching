@@ -1,0 +1,51 @@
+{
+  "id": "grade_wrong_adds_weak_concept",
+  "description": "Incorrect answer drops level, resets streak, and adds concept to weakConcepts",
+  "question": {
+    "id": "q_math_sub_1",
+    "ageBand": "AGE_7_TO_9",
+    "topic": "math",
+    "conceptId": "subtraction_borrow",
+    "conceptTitle": "Subtraction with Regrouping",
+    "difficulty": 3,
+    "prompt": "What is 42 - 17?",
+    "choices": [
+      { "id": "c1", "text": "35", "correct": false },
+      { "id": "c2", "text": "25", "correct": true },
+      { "id": "c3", "text": "24", "correct": false }
+    ],
+    "whyCorrect": "42 - 17 = 25.",
+    "whyWrongByChoice": {
+      "c1": "35 subtracted 7 from 2 without borrowing."
+    },
+    "conceptExplainer": "When the top digit is smaller, regroup 1 ten into 10 ones.",
+    "language": "en",
+    "interactionType": "TAP_TEXT",
+    "source": "builtin"
+  },
+  "choiceId": "c1",
+  "initialSkill": {
+    "topic": "math",
+    "level": 3,
+    "streakCorrect": 1,
+    "weakConcepts": [],
+    "conceptTitles": {},
+    "masteredConcepts": [],
+    "tierLabel": "intermediate",
+    "totalAttempts": 5,
+    "totalCorrect": 4,
+    "avgResponseTimeMs": 2000
+  },
+  "responseTimeMs": 1800,
+  "expectFeedback": {
+    "correct": false,
+    "resultLine": "Not this one",
+    "nextLevel": 2
+  },
+  "expectSkill": {
+    "level": 2,
+    "streakCorrect": 0,
+    "containsWeakConcept": "subtraction_borrow",
+    "containsMasteredConcept": null
+  }
+}

@@ -116,7 +116,8 @@ class MeritScreenMessagingService : FirebaseMessagingService() {
             )
         }
 
-        val iconRes = applicationInfo.icon.takeIf { it != 0 } ?: android.R.drawable.ic_dialog_info
+        val notificationIconRes = resources.getIdentifier("ic_watching_notification", "drawable", packageName)
+        val iconRes = if (notificationIconRes != 0) notificationIconRes else (applicationInfo.icon.takeIf { it != 0 } ?: android.R.drawable.ic_dialog_info)
 
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(iconRes)

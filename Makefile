@@ -1,26 +1,48 @@
-# MeritScreen — local Android + iOS demo
+# ==============================================================================
+# MeritScreen — Run, Test, and Try Guide (Desktop, Android, iOS)
+# ==============================================================================
 #
-# Android does NOT hot-reload Text/Compose edits by itself.
-# Saving a .kt file only updates the emulator after a rebuild+reinstall.
+# QUICK START / TRY & DEMO:
+#   Desktop (macOS / Windows / Linux Tauri App):
+#     make desktop-ui         Launch Desktop Tauri app (Role Gate: Parent / Child)
+#       - Child mode: Enter mock pairing code (e.g. 123456) -> test C01 pairing,
+#                     C02 checklist, C05 launcher, C07-C11 quiz overlay, lockout,
+#                     and fail-lock screens.
+#       - Parent mode: Enter mock OTP (e.g. 424242) -> test dashboard, limits,
+#                      PIN reset, allowlists, and family management.
+#     make desktop-macos-ui   Launch Desktop with live Firebase auth/sync (macOS)
 #
-# Android:
-#   make dev       Boot 1 emulator + install + launch (once)
-#   make up-dev    Boot 2 emulators (parent + child)
-#   make watch     Auto-reload on save (lite + fast) ← use while editing UI
-#   make reload    One-shot rebuild + reinstall (no watcher)
-#   make logs      Stream app logcat (Ctrl+C to stop)
-#   make down      Stop emulators
+#   Android (Emulator):
+#     make dev                Boot 1 emulator, install debug APK, and launch app
+#     make up-dev             Boot 2 emulators (Parent :5554 + Child :5556)
+#     make watch              Hot UI watcher: rebuilds and pushes APK on .kt save
 #
-# iOS (Simulator):
-#   make ios-dev       Boot 1 simulator + build + launch
-#   make ios-up-dev    Boot 2 simulators (parent + child) ← pairing / sync
-#   make ios-reload    Rebuild + reinstall (simulators stay up)
-#   make ios-down      Shut down MeritScreen simulators
-#   make ios-devices   List simulators
-#   make ios-doctor    Verify Xcode + runtimes
+#   iOS (Simulator):
+#     make ios-dev            Boot 1 simulator, compile, and launch
+#     make ios-up-dev         Boot 2 simulators (MeritScreen_Parent + Child)
 #
-# Android AVDs: MeritScreen_API34_Lite → :5554 | MeritScreen_API34_Child → :5556
-# iOS Sims:     MeritScreen_Parent | MeritScreen_Child  (auto-created)
+# TESTING & VERIFICATION:
+#   Desktop:
+#     make desktop-test       Run all 106 Rust unit & integration tests (11 crates)
+#     make desktop-conformance Run golden vector, resilience & updater tests
+#     make desktop-clippy     Run cargo clippy with zero warnings
+#     make desktop-fmt        Check code formatting
+#     make desktop-a11y       Run UI accessibility smoke tests (ARIA, keyboard navigation)
+#     make desktop-perf       Run Guardian memory / RSS performance smoke test
+#     make desktop-all        Run complete desktop test, lint, a11y & perf suite
+#
+#   Android:
+#     make doctor             Verify Android SDK, ADB, and AVD environment
+#     make logs               Stream live Android logcat
+#
+#   iOS:
+#     make ios-doctor         Verify Xcode, tools, and iOS Simulator runtimes
+#     make ios-devices        List configured iOS simulators
+#
+# TEARDOWN:
+#     make down               Stop all Android emulators
+#     make ios-down           Stop MeritScreen iOS simulators
+# ==============================================================================
 
 SHELL := /bin/bash
 .ONESHELL:
@@ -34,57 +56,61 @@ export QUIET ?= 1
 
 .PHONY: help dev up-dev watch reload logs down devices doctor \
 	ios-dev ios-up-dev ios-reload ios-down ios-devices ios-doctor \
-	desktop-check desktop-test desktop-ui desktop-ui-build desktop-a11y desktop-conformance \
+	desktop-check desktop-test desktop-ui desktop-dev desktop-ui-build \
+	desktop-a11y desktop-conformance desktop-clippy desktop-fmt desktop-perf \
+	desktop-all desktop-deb desktop-pkg \
 	desktop-macos desktop-macos-ui desktop-macos-doctor
 
 help:
 	@printf '%s\n' \
-		'MeritScreen local demo' \
+		'====================================================================' \
+		'MeritScreen Local Demo, Runner & Test Matrix' \
+		'====================================================================' \
 		'' \
-		'Android' \
-		'  make dev       Boot 1 emulator, install, launch' \
-		'  make up-dev    Boot 2 emulators, install + launch both' \
-		'  make watch     Auto rebuild+relaunch when you save .kt files' \
-		'  make reload    One-shot rebuild + reinstall (emulator stays up)' \
-		'  make logs      Stream MeritScreen logcat (Ctrl+C to stop)' \
-		'  make down      Stop all emulators' \
-		'  make devices   Show adb devices' \
-		'  make doctor    Verify SDK + AVDs' \
-		'' \
-		'iOS Simulator' \
-		'  make ios-dev       Boot 1 simulator, build, launch' \
-		'  make ios-up-dev    Boot 2 simulators (parent + child), build, launch' \
-		'  make ios-reload    Rebuild + reinstall (simulators stay up)' \
-		'  make ios-down      Shut down MeritScreen_Parent / MeritScreen_Child' \
-		'  make ios-devices   List available simulators' \
-		'  make ios-doctor    Verify Xcode + iOS runtimes' \
-		'' \
-		'Desktop (Rust)' \
-		'  make desktop-check      cargo check --workspace' \
-		'  make desktop-test       cargo test --workspace' \
-		'  make desktop-ui-build   npm build UI assets' \
-		'  make desktop-a11y       UI a11y smoke (d10)' \
-		'  make desktop-conformance  vectors + resilience + updater (d12)' \
-		'  make desktop-ui         launch Tauri role-gate shell (demo backends)' \
+		'Desktop (Tauri + Pure Rust Guardian)' \
+		'  make desktop-ui           Launch Desktop App in Dev Mode (Role Gate: Parent / Child)' \
+		'  make desktop-dev          Alias for desktop-ui' \
+		'  make desktop-test         Run all 106 tests across 11 crates' \
+		'  make desktop-check        Run cargo check across workspace' \
+		'  make desktop-clippy       Run cargo clippy with zero warnings' \
+		'  make desktop-fmt          Verify rustfmt formatting' \
+		'  make desktop-conformance  Run golden vectors, resilience & updater tests' \
+		'  make desktop-a11y         Run UI accessibility smoke tests (ARIA + keyboard nav)' \
+		'  make desktop-perf         Verify Guardian memory footprint (RSS <= 120MB budget)' \
+		'  make desktop-all          Run complete desktop test, lint, a11y & perf suite' \
+		'  make desktop-ui-build     Build production Vite/React UI bundle' \
+		'  make desktop-deb          Build Linux Debian package (.deb)' \
+		'  make desktop-pkg          Build macOS installer package (.pkg)' \
 		'' \
 		'Desktop macOS + Firebase (E2E)' \
-		'  make desktop-macos-doctor  Firebase CLI login + API key probe' \
-		'  make desktop-macos         Full build + conformance + Guardian Firebase smoke' \
-		'  make desktop-macos-ui      Same as desktop-macos, then launch Tauri UI' \
-		'  (requires: firebase login → project managing-screen-time)' \
+		'  make desktop-macos-doctor Check Firebase CLI login + API key probe' \
+		'  make desktop-macos        Full build + conformance + Guardian Firebase smoke' \
+		'  make desktop-macos-ui     Run Desktop UI connected to live Firebase' \
+		'  (requires: firebase login -> project managing-screen-time)' \
 		'' \
-		'Why Android edits do not appear instantly:' \
-		'  The emulator runs a built APK, not your source files.' \
-		'  Change Text → save → watcher (or reload) rebuilds → then you see it.' \
+		'Android (Emulator)' \
+		'  make dev                  Boot 1 emulator, install debug APK, and launch' \
+		'  make up-dev               Boot 2 emulators (Parent + Child), install & launch' \
+		'  make watch                Auto rebuild+relaunch when you save .kt files' \
+		'  make reload               One-shot rebuild + reinstall (emulator stays up)' \
+		'  make logs                 Stream MeritScreen logcat (Ctrl+C to stop)' \
+		'  make down                 Stop all emulators' \
+		'  make devices              Show adb devices' \
+		'  make doctor               Verify SDK + AVDs' \
 		'' \
-		'Fast Android UI loop:' \
-		'  make dev' \
-		'  make watch          # leave this running in a terminal' \
-		'  edit + save         # APK pushes automatically' \
+		'iOS Simulator' \
+		'  make ios-dev              Boot 1 simulator, build, launch' \
+		'  make ios-up-dev           Boot 2 simulators (parent + child), build, launch' \
+		'  make ios-reload           Rebuild + reinstall (simulators stay up)' \
+		'  make ios-down             Shut down MeritScreen_Parent / MeritScreen_Child' \
+		'  make ios-devices          List available simulators' \
+		'  make ios-doctor           Verify Xcode + iOS runtimes' \
 		'' \
-		'Fast iOS dual-device (parent ↔ child):' \
-		'  make ios-up-dev' \
-		'  edit Swift → make ios-reload'
+		'How to Try & Test:' \
+		'  Desktop:  Run "make desktop-ui" -> Select Child to try quiz overlay & limits,' \
+		'            or select Parent to manage family settings (mock OTP: 424242).' \
+		'  Android:  Run "make dev", then "make watch" in a second terminal.' \
+		'  iOS:      Run "make ios-up-dev" to simulate dual-device Parent <-> Child sync.'
 
 dev:
 	@$(ENV) && "$(SCRIPTS)/run-demo.sh" --quiet
@@ -222,8 +248,40 @@ desktop-conformance:
 
 desktop-ui: desktop-ui-build
 	@set -euo pipefail; \
+	if [[ -f "$(ROOT)/scripts/desktop-macos-env.sh" && "$$(uname -s)" == "Darwin" ]]; then \
+		source "$(ROOT)/scripts/desktop-macos-env.sh"; \
+	fi; \
 	cd "$(ROOT)/desktop"; \
 	cargo run -p meritscreen-ui
+
+desktop-dev: desktop-ui
+
+desktop-clippy:
+	@set -euo pipefail; \
+	cd "$(ROOT)/desktop"; \
+	cargo clippy --workspace --all-targets -- -D warnings
+
+desktop-fmt:
+	@set -euo pipefail; \
+	cd "$(ROOT)/desktop"; \
+	cargo fmt --all -- --check
+
+desktop-perf:
+	@set -euo pipefail; \
+	cd "$(ROOT)/desktop"; \
+	cargo run -p meritscreen-guardian -- --perf-smoke
+
+desktop-deb:
+	@set -euo pipefail; \
+	cd "$(ROOT)/desktop"; \
+	BUILD_CONFIG=debug ./packaging/linux/build-deb.sh
+
+desktop-pkg:
+	@set -euo pipefail; \
+	cd "$(ROOT)/desktop"; \
+	BUILD_CONFIG=debug ./packaging/macos/build-pkg.sh
+
+desktop-all: desktop-check desktop-test desktop-conformance desktop-clippy desktop-fmt desktop-a11y desktop-perf
 
 desktop-macos-doctor:
 	@set -euo pipefail; \
@@ -236,3 +294,4 @@ desktop-macos:
 desktop-macos-ui:
 	@set -euo pipefail; \
 	"$(SCRIPTS)/desktop-macos-e2e.sh" ui
+

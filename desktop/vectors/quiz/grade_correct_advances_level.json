@@ -1,0 +1,52 @@
+{
+  "id": "grade_correct_advances_level",
+  "description": "Second consecutive correct answer promotes topic skill from level 2 to level 3",
+  "question": {
+    "id": "q_math_add_1",
+    "ageBand": "AGE_7_TO_9",
+    "topic": "math",
+    "conceptId": "addition_basic",
+    "conceptTitle": "Basic Addition",
+    "difficulty": 2,
+    "prompt": "What is 7 + 8?",
+    "choices": [
+      { "id": "c1", "text": "14", "correct": false },
+      { "id": "c2", "text": "15", "correct": true },
+      { "id": "c3", "text": "16", "correct": false }
+    ],
+    "whyCorrect": "7 + 8 equals 15.",
+    "whyWrongByChoice": {
+      "c1": "14 is 7 + 7, one less than 7 + 8.",
+      "c3": "16 is 8 + 8, one more than 7 + 8."
+    },
+    "conceptExplainer": "Addition combines numbers together into a total.",
+    "language": "en",
+    "interactionType": "TAP_TEXT",
+    "source": "builtin"
+  },
+  "choiceId": "c2",
+  "initialSkill": {
+    "topic": "math",
+    "level": 2,
+    "streakCorrect": 1,
+    "weakConcepts": [],
+    "conceptTitles": {},
+    "masteredConcepts": [],
+    "tierLabel": "basic",
+    "totalAttempts": 3,
+    "totalCorrect": 2,
+    "avgResponseTimeMs": 1500
+  },
+  "responseTimeMs": 1200,
+  "expectFeedback": {
+    "correct": true,
+    "resultLine": "That’s it",
+    "nextLevel": 3
+  },
+  "expectSkill": {
+    "level": 3,
+    "streakCorrect": 0,
+    "containsWeakConcept": null,
+    "containsMasteredConcept": null
+  }
+}

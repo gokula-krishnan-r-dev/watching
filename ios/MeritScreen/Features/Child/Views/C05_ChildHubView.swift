@@ -107,7 +107,7 @@ public struct C05_ChildHubView: View {
             viewModel: failVM,
             onRetryQuiz: {
                 let rule = viewModel.appRules.first { $0.allowed && !$0.isEmergency } ??
-                    AppRule(appId: "com.watching.app", packageOrBundleId: "com.watching.app", displayName: "Apps")
+                    AppRule(appId: "com.watching.sandeep", packageOrBundleId: "com.watching.sandeep", displayName: "Apps")
                 quizFlowViewModel = QuizFlowViewModel(
                     targetRule: rule,
                     isRetryMode: true,
@@ -167,7 +167,7 @@ public struct C05_ChildHubView: View {
     private var quizCover: some View {
         let activeQuizVM = quizFlowViewModel ?? QuizFlowViewModel(
             targetRule: viewModel.quizInterruptRule ?? (viewModel.appRules.first { $0.allowed && !$0.isEmergency } ??
-                AppRule(appId: "com.watching.app", packageOrBundleId: "com.watching.app", displayName: "Apps")),
+                AppRule(appId: "com.watching.sandeep", packageOrBundleId: "com.watching.sandeep", displayName: "Apps")),
             isRetryMode: viewModel.snapshot.phase == .shielded,
             childName: viewModel.childName,
             ageBand: viewModel.ageBand
@@ -669,7 +669,7 @@ public struct C05_ChildHubView: View {
     private func checkPendingQuizFromExtension() {
         if let request = ScreenTimeSharedStore.shared.consumePendingQuizRequest() {
             let rule = viewModel.appRules.first { $0.allowed && !$0.isEmergency } ??
-                AppRule(appId: "com.watching.app", packageOrBundleId: "com.watching.app", displayName: "Apps")
+                AppRule(appId: "com.watching.sandeep", packageOrBundleId: "com.watching.sandeep", displayName: "Apps")
             let isRetry = request.isRetry || viewModel.showingFailLock || viewModel.snapshot.phase == .shielded
             quizFlowViewModel = QuizFlowViewModel(
                 targetRule: rule,
@@ -736,6 +736,9 @@ struct QuizCoordinatorView: View {
                             feedback: fb,
                             question: q,
                             isLastQuestion: viewModel.currentQuestionIndex + 1 >= viewModel.questions.count,
+                            learningResource: viewModel.learningResource,
+                            learnMoreRequired: viewModel.learnMoreRequired,
+                            learnMoreLockSecondsRemaining: viewModel.learnMoreLockSecondsRemaining,
                             onContinue: {
                                 viewModel.advanceToNext()
                             }

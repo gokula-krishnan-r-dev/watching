@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Watching</string>
+    <string name="watching_brand_title">Watching</string>
+    <string name="watching_brand_tagline">Turn screen time battles into curious minds.</string>
+    <string name="watching_logo_content_description">Watching Shield Logo</string>
 </resources>

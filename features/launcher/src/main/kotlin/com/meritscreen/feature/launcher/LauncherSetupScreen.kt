@@ -116,7 +116,7 @@ fun LauncherSetupScreen(
         )
         Spacer(Modifier.height(MeritSpacing.md))
         Text(
-            text = if (state.isDefaultHome) "MeritScreen is your Home app" else "Make MeritScreen your Home app",
+            text = if (state.isDefaultHome) "Watching is your Home app" else "Make Watching your Home app",
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
         )
@@ -125,7 +125,7 @@ fun LauncherSetupScreen(
             text = if (state.isDefaultHome) {
                 "Nice — tapping the Home/Recents button now brings the child back here instead of the phone's regular Home screen."
             } else {
-                "When MeritScreen is Home, pressing the phone's Home button always returns here — so approved apps and screen-time stay front and center."
+                "When Watching is Home, pressing the phone's Home button always returns here — so approved apps and screen-time stay front and center."
             },
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

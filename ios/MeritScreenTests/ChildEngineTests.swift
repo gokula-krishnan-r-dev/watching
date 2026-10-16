@@ -329,6 +329,66 @@ final class ChildEngineTests: XCTestCase {
         XCTAssertTrue(updatedSkill.weakConcepts.contains("fractions"))
     }
 
+    func testStaticLearningResourceCatalogResolvesDivisionConcept() {
+        let resource = StaticLearningResourceCatalog.getFor(
+            conceptId: "division-sharing",
+            topic: "math",
+            conceptTitle: "Fair Sharing Division"
+        )
+        XCTAssertEqual(resource.conceptId, "division-sharing")
+        XCTAssertFalse(resource.summaryBlog.sections.isEmpty)
+        XCTAssertFalse(resource.videos.isEmpty)
+        XCTAssertEqual(AppConfig.quizLockoutSeconds, 30)
+    }
+
+    @MainActor
+    func testWrongAnswerRequiresLearnMoreLockBeforeContinue() {
+        let defaults = UserDefaults(suiteName: "test.meritscreen.learn_more_lock")!
+        defaults.removePersistentDomain(forName: "test.meritscreen.learn_more_lock")
+        let store = ChildLocalStore(defaults: defaults)
+        store.saveCachedPolicy(samplePolicy)
+
+        let viewModel = QuizFlowViewModel(
+            targetRule: sampleRule,
+            localStore: store,
+            childName: "Leo",
+            ageBand: .band_7_9
+        )
+        viewModel.startQuiz()
+        guard let question = viewModel.currentQuestion else {
+            XCTFail("Expected a quiz question after start")
+            return
+        }
+
+        let wrongChoice = question.choices.first(where: { !$0.correct })?.id
+            ?? question.choices.first?.id
+        guard let wrongChoice else {
+            XCTFail("Expected at least one choice")
+            return
+        }
+
+        viewModel.selectChoice(wrongChoice)
+        viewModel.submitAnswer()
+
+        XCTAssertEqual(viewModel.step, .explanation)
+        XCTAssertTrue(viewModel.learnMoreRequired)
+        XCTAssertEqual(viewModel.learnMoreLockSecondsRemaining, AppConfig.quizLockoutSeconds)
+        XCTAssertNotNil(viewModel.learningResource)
+        XCTAssertFalse(viewModel.canContinueAfterExplanation)
+
+        let indexBefore = viewModel.currentQuestionIndex
+        viewModel.advanceToNext()
+        XCTAssertEqual(viewModel.currentQuestionIndex, indexBefore, "Must stay sticky during Learn More lock")
+
+        viewModel.learnMoreLockSecondsRemaining = 0
+        XCTAssertTrue(viewModel.canContinueAfterExplanation)
+        viewModel.advanceToNext()
+        XCTAssertTrue(
+            viewModel.currentQuestionIndex > indexBefore || viewModel.step == .result,
+            "After unlock, continue must advance the quiz"
+        )
+    }
+
     func testAdaptiveQuizEngineFinalize() {
         let passResult = AdaptiveQuizEngine.finalize(
             correctCount: 3,

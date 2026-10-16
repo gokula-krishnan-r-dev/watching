@@ -1166,6 +1166,10 @@ fun ParentUiPreviewRoot(
                                 whyWrongText = whyWrong,
                                 correctChoiceText = correctText,
                                 resource = baselineResource,
+                                // Wrong answers auto-open Learn More with teaching lock (preview starts unlocked).
+                                showResourceModal = !isCorrect,
+                                learnMoreRequired = !isCorrect,
+                                learnMoreLockSecondsRemaining = 0,
                             )
                         },
                         onProceedNext = { currentScreen = PreviewScreen.C09B_TEACH },
@@ -1173,7 +1177,11 @@ fun ParentUiPreviewRoot(
                             previewStep = previewStep.copy(showResourceModal = true)
                         },
                         onCloseResourceModal = {
-                            previewStep = previewStep.copy(showResourceModal = false)
+                            if (previewStep.learnMoreRequired) {
+                                currentScreen = PreviewScreen.C09B_TEACH
+                            } else {
+                                previewStep = previewStep.copy(showResourceModal = false)
+                            }
                         },
                         onPlayVideo = { video ->
                             previewStep = previewStep.copy(activeFullscreenVideo = video)

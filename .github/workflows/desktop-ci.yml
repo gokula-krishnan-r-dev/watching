@@ -21,9 +21,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [macos-latest, windows-latest, ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf x11-utils xdotool
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -86,7 +92,8 @@ jobs:
           if ($guardian.HasExited) { throw "guardian exited early code=$($guardian.ExitCode)" }
           Stop-Process -Id $guardian.Id -Force
           .\target\debug\meritscreen-guardian.exe --perf-smoke
-          Write-Host "Windows guardian console + perf smoke OK"
+          pwsh .\packaging\windows\build-msi.ps1 -Configuration debug
+          Write-Host "Windows guardian console + perf smoke + MSI staging OK"
 
       - name: macOS Guardian / Agent smoke
         if: runner.os == 'macOS'
@@ -108,4 +115,28 @@ jobs:
           test -f packaging/macos/com.meritscreen.guardian.plist
           test -f packaging/macos/com.meritscreen.agent.plist
           test -f packaging/macos/entitlements.plist
-          echo "macOS guardian console + perf smoke OK"
+          BUILD_CONFIG=debug ./packaging/macos/build-pkg.sh
+          test -f target/macos-pkg/MeritScreen-0.1.0.pkg
+          echo "macOS guardian console + perf smoke + pkg build OK"
+
+      - name: Linux Guardian / Agent smoke
+        if: runner.os == 'Linux'
+        run: |
+          cargo build -p meritscreen-guardian -p meritscreen-agent
+          ./target/debug/meritscreen-guardian --help
+          ./target/debug/meritscreen-agent --help
+          export MERITSCREEN_DATA_DIR="$RUNNER_TEMP/ms-data"
+          export MERITSCREEN_SECRETS_DIR="$RUNNER_TEMP/ms-secrets"
+          mkdir -p "$MERITSCREEN_DATA_DIR" "$MERITSCREEN_SECRETS_DIR"
+          ./target/debug/meritscreen-guardian --no-agent &
+          GPID=$!
+          sleep 3
+          if ! kill -0 "$GPID" 2>/dev/null; then echo "guardian exited early"; exit 1; fi
+          kill "$GPID" 2>/dev/null || true
+          wait "$GPID" 2>/dev/null || true
+          ./target/debug/meritscreen-guardian --perf-smoke
+          test -f packaging/linux/meritscreen-guardian.service
+          test -f packaging/linux/meritscreen-agent.desktop
+          BUILD_CONFIG=debug ./packaging/linux/build-deb.sh
+          test -f target/linux-deb/meritscreen_0.1.0_amd64.deb
+          echo "Linux guardian console + perf smoke + deb build OK"

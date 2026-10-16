@@ -1,0 +1,37 @@
+{
+  "id": "pass_grant",
+  "description": "Block expires → quiz pass grants a fresh in_block window",
+  "policy": {
+    "quizMode": "app_block",
+    "defaultBlockMinutes": 15,
+    "defaultCooldownMinutes": 15,
+    "allowRetryDuringCooldown": true
+  },
+  "rule": {
+    "appId": "yt",
+    "packageOrBundleId": "com.google.android.youtube",
+    "allowed": true,
+    "blockMinutes": 30,
+    "grantOnPassMinutes": 30,
+    "cooldownMinutes": 15
+  },
+  "initial": {
+    "phase": "idle",
+    "dayKey": "2026-10-05",
+    "blockDurationMinutes": 15,
+    "minutesAccruedInBlock": 0,
+    "cooldownMinutes": 15,
+    "minutesUsedToday": 0
+  },
+  "steps": [
+    { "op": "open_app", "nowMs": 0 },
+    { "op": "tick", "nowMs": 1800001, "isAppActive": true },
+    { "op": "quiz_pass", "nowMs": 1800001, "isWeekend": false }
+  ],
+  "expect": {
+    "phase": "in_block",
+    "minutesAccruedInBlock": 0,
+    "blockDurationMinutes": 30,
+    "minutesUsedToday": 30
+  }
+}

@@ -89,7 +89,7 @@ class InterruptSurfaceController(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 fitInsetsTypes = 0
             }
-            title = "MeritScreenQuizInterrupt"
+            title = "WatchingQuizInterrupt"
         }
 
         return try {

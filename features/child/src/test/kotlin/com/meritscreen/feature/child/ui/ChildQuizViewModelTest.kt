@@ -1,6 +1,7 @@
 package com.meritscreen.feature.child.ui
 
 import com.meritscreen.core.analytics.AnalyticsTracker
+import com.meritscreen.core.common.config.AppConfig
 import com.meritscreen.core.common.domain.AgeBand
 import com.meritscreen.core.common.domain.ChildPolicy
 import com.meritscreen.core.common.domain.LearningResourceVideo
@@ -198,7 +199,7 @@ class ChildQuizViewModelTest {
     }
 
     @Test
-    fun `answering incorrectly stays on Question step with inline wrong-answer explanation and resources`() = runTest(testDispatcher) {
+    fun `answering incorrectly auto-opens Learn More with mandatory teaching lock`() = runTest(testDispatcher) {
         val viewModel = createViewModel()
         val collectJob = launch(testDispatcher) { viewModel.uiState.collect() }
         testScheduler.runCurrent()
@@ -219,13 +220,15 @@ class ChildQuizViewModelTest {
         assertEquals("8", questionStep.correctChoiceText)
         assertNotNull(questionStep.resource)
         assertEquals("division-sharing", questionStep.resource?.conceptId)
-        assertFalse(questionStep.showResourceModal)
+        assertTrue(questionStep.showResourceModal)
+        assertTrue(questionStep.learnMoreRequired)
+        assertEquals(AppConfig.QUIZ_LOCKOUT_SECONDS, questionStep.learnMoreLockSecondsRemaining)
 
         collectJob.cancel()
     }
 
     @Test
-    fun `opening and closing learning resource modal updates state reactively`() = runTest(testDispatcher) {
+    fun `Learn More cannot be dismissed during teaching lock then advances after unlock`() = runTest(testDispatcher) {
         val viewModel = createViewModel()
         val collectJob = launch(testDispatcher) { viewModel.uiState.collect() }
         testScheduler.runCurrent()
@@ -233,18 +236,33 @@ class ChildQuizViewModelTest {
         viewModel.answer("c1")
         testScheduler.runCurrent()
 
-        // Open modal
-        viewModel.openResourceModal()
-        testScheduler.runCurrent()
-
         var step = (viewModel.uiState.value as UiState.Success).data.step as QuizUiStep.Question
         assertTrue(step.showResourceModal)
+        assertTrue(step.learnMoreRequired)
+        assertTrue(step.learnMoreLockSecondsRemaining > 0)
 
-        // Close modal
+        // Sticky gate: dismiss is ignored while locked
         viewModel.closeResourceModal()
         testScheduler.runCurrent()
-
         step = (viewModel.uiState.value as UiState.Success).data.step as QuizUiStep.Question
+        assertTrue(step.showResourceModal)
+        assertTrue(step.learnMoreRequired)
+        assertEquals("test_q1", step.question.id)
+
+        // Advance past the teaching lock
+        testScheduler.advanceTimeBy(AppConfig.QUIZ_LOCKOUT_SECONDS * 1_000L + 500L)
+        testScheduler.runCurrent()
+        step = (viewModel.uiState.value as UiState.Success).data.step as QuizUiStep.Question
+        assertEquals(0, step.learnMoreLockSecondsRemaining)
+        assertTrue(step.showResourceModal)
+
+        // After unlock, dismiss continues to the next question
+        viewModel.closeResourceModal()
+        testScheduler.runCurrent()
+        step = (viewModel.uiState.value as UiState.Success).data.step as QuizUiStep.Question
+        assertEquals("test_q2", step.question.id)
+        assertNull(step.evaluatedChoiceId)
+        assertFalse(step.learnMoreRequired)
         assertFalse(step.showResourceModal)
 
         collectJob.cancel()

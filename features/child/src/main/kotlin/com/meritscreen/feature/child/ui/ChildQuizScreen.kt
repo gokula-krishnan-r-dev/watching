@@ -1161,7 +1161,9 @@ fun QuizQuestionPane(
 
                     Spacer(Modifier.height(16.dp))
 
-                    // Actions: Learning Resources and Next Question buttons
+                    // Wrong answers require Learn More (auto-opened, sticky for QUIZ_LOCKOUT_SECONDS).
+                    // Continue is only available after the teaching pause completes.
+                    val learnMoreLocked = step.learnMoreRequired && step.learnMoreLockSecondsRemaining > 0
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1175,27 +1177,39 @@ fun QuizQuestionPane(
                             colors = ButtonDefaults.buttonColors(containerColor = MeritColors.SecondaryContainer),
                         ) {
                             Text(
-                                text = "Learn more",
+                                text = if (learnMoreLocked) {
+                                    "Keep learning (${step.learnMoreLockSecondsRemaining}s)"
+                                } else if (step.learnMoreRequired) {
+                                    "Continue learning"
+                                } else {
+                                    "Learn more"
+                                },
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MeritColors.OnSecondaryContainer,
                             )
                         }
 
-                        Button(
-                            onClick = onProceedNext,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MeritColors.Primary),
-                        ) {
-                            Text(
-                                text = "Next",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MeritColors.OnPrimary,
-                            )
+                        if (!step.learnMoreRequired || !learnMoreLocked) {
+                            Button(
+                                onClick = onProceedNext,
+                                enabled = !step.learnMoreRequired || step.learnMoreLockSecondsRemaining <= 0,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MeritColors.Primary,
+                                    disabledContainerColor = MeritColors.SurfaceContainerHigh,
+                                ),
+                            ) {
+                                Text(
+                                    text = "Next",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MeritColors.OnPrimary,
+                                )
+                            }
                         }
                     }
                 }
@@ -1256,13 +1270,16 @@ fun QuizQuestionPane(
         }
     }
 
-    // Modal dialog for Learning Resources (hidden while fullscreen video is playing)
+    // Modal dialog for Learning Resources (hidden while fullscreen video is playing).
+    // Wrong answers auto-open this with a mandatory teaching lock.
     if (step.showResourceModal && step.activeFullscreenVideo == null && step.resource != null) {
         LearningResourceModal(
             resource = step.resource,
             tts = tts,
             onDismiss = onCloseResourceModal,
             onPlayVideo = onPlayVideo,
+            mandatoryLock = step.learnMoreRequired,
+            lockSecondsRemaining = step.learnMoreLockSecondsRemaining,
         )
     }
 

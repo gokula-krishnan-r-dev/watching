@@ -1,5 +1,6 @@
 package com.meritscreen.feature.child.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +36,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,12 +56,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.meritscreen.core.common.config.AppConfig
 import com.meritscreen.core.common.domain.LearningResource
 import com.meritscreen.core.common.domain.LearningResourceVideo
 import com.meritscreen.core.ui.theme.MeritColors
 
 /**
  * Full-screen learning resource hub: concept guide + curated video lessons.
+ *
+ * When [mandatoryLock] is true (wrong-answer teaching pause), dismiss is blocked until
+ * [lockSecondsRemaining] reaches 0, then the primary CTA continues to the next question.
  */
 @Composable
 fun LearningResourceModal(
@@ -67,14 +73,22 @@ fun LearningResourceModal(
     tts: QuizTtsNarrator,
     onDismiss: () -> Unit,
     onPlayVideo: (LearningResourceVideo) -> Unit,
+    mandatoryLock: Boolean = false,
+    lockSecondsRemaining: Int = 0,
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    val canDismiss = !mandatoryLock || lockSecondsRemaining <= 0
+    val lockTotal = AppConfig.QUIZ_LOCKOUT_SECONDS.coerceAtLeast(1)
+
+    BackHandler(enabled = !canDismiss) { /* sticky teaching pause */ }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (canDismiss) onDismiss() },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
+            dismissOnBackPress = canDismiss,
+            dismissOnClickOutside = false,
         ),
     ) {
         Surface(
@@ -89,6 +103,7 @@ fun LearningResourceModal(
             ) {
                 ResourceModalHeader(
                     resource = resource,
+                    canDismiss = canDismiss,
                     onDismiss = onDismiss,
                     onSpeak = {
                         val blog = resource.summaryBlog
@@ -97,6 +112,14 @@ fun LearningResourceModal(
                         tts.speak(speech)
                     },
                 )
+
+                if (mandatoryLock) {
+                    LearnMoreLockBanner(
+                        lockSecondsRemaining = lockSecondsRemaining,
+                        lockTotalSeconds = lockTotal,
+                        canDismiss = canDismiss,
+                    )
+                }
 
                 Row(
                     modifier = Modifier
@@ -152,26 +175,46 @@ fun LearningResourceModal(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            text = if (selectedTab == 0 && resource.videos.isNotEmpty()) {
-                                "Videos are on the Videos tab"
-                            } else {
-                                "Ready to try the quiz again?"
+                            text = when {
+                                mandatoryLock && !canDismiss ->
+                                    "Take a moment to learn why — continue unlocks in ${lockSecondsRemaining}s"
+                                mandatoryLock ->
+                                    "Nice focus! Ready for the next question?"
+                                selectedTab == 0 && resource.videos.isNotEmpty() ->
+                                    "Videos are on the Videos tab"
+                                else ->
+                                    "Ready to try the quiz again?"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MeritColors.OnSurfaceVariant,
                         )
                         Button(
                             onClick = onDismiss,
+                            enabled = canDismiss,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(48.dp),
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MeritColors.Primary),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MeritColors.Primary,
+                                disabledContainerColor = MeritColors.SurfaceContainerHigh,
+                            ),
                         ) {
                             Text(
-                                text = "Back to quiz",
+                                text = when {
+                                    mandatoryLock && !canDismiss ->
+                                        "Keep learning (${lockSecondsRemaining}s)"
+                                    mandatoryLock ->
+                                        "Continue to next question"
+                                    else ->
+                                        "Back to quiz"
+                                },
                                 fontWeight = FontWeight.Bold,
-                                color = MeritColors.OnPrimary,
+                                color = if (canDismiss) {
+                                    MeritColors.OnPrimary
+                                } else {
+                                    MeritColors.OnSurfaceVariant.copy(alpha = 0.5f)
+                                },
                             )
                         }
                     }
@@ -182,8 +225,74 @@ fun LearningResourceModal(
 }
 
 @Composable
+private fun LearnMoreLockBanner(
+    lockSecondsRemaining: Int,
+    lockTotalSeconds: Int,
+    canDismiss: Boolean,
+) {
+    val progress = ((lockTotalSeconds - lockSecondsRemaining).toFloat() / lockTotalSeconds)
+        .coerceIn(0f, 1f)
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = MeritColors.SecondaryContainer.copy(alpha = 0.65f),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Timer,
+                        contentDescription = null,
+                        tint = MeritColors.OnSecondaryContainer,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = if (canDismiss) "Learning pause complete" else "Focused learning pause",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MeritColors.OnSecondaryContainer,
+                    )
+                }
+                Text(
+                    text = if (canDismiss) {
+                        "Ready"
+                    } else {
+                        "00:${lockSecondsRemaining.toString().padStart(2, '0')}"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MeritColors.OnSecondaryContainer,
+                )
+            }
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(5.dp)
+                    .clip(CircleShape),
+                color = MeritColors.Primary,
+                trackColor = MeritColors.SurfaceContainerHigh,
+            )
+        }
+    }
+}
+
+@Composable
 private fun ResourceModalHeader(
     resource: LearningResource,
+    canDismiss: Boolean,
     onDismiss: () -> Unit,
     onSpeak: () -> Unit,
 ) {
@@ -254,13 +363,15 @@ private fun ResourceModalHeader(
                         modifier = Modifier.size(22.dp),
                     )
                 }
-                IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = MeritColors.OnSurface,
-                        modifier = Modifier.size(22.dp),
-                    )
+                if (canDismiss) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = MeritColors.OnSurface,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
                 }
             }
         }

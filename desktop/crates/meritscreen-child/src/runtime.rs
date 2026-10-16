@@ -1,0 +1,1278 @@
+//! Local child runtime — SessionEngine + AdaptiveQuizEngine, no Firebase.
+
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+
+use chrono::Datelike;
+use meritscreen_core::app_config::{PAIRING_CODE_LENGTH, QUIZ_LOCKOUT_SECONDS};
+use meritscreen_core::{
+    load_builtin_bank, AdaptiveQuizEngine, AgeBand, AppError, AppRule, ChildPolicy, QuizMode,
+    QuizQuestion, SessionEngine, SessionPhase, SessionSnapshot, TopicSkill,
+};
+use meritscreen_security::{accounts, hash_parent_pin, verify_parent_pin, SecretStore};
+use parking_lot::Mutex;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
+use serde::{Deserialize, Serialize};
+use tracing::info;
+use uuid::Uuid;
+
+use crate::models::{
+    default_checklist, snapshot_metrics, ChecklistItem, ChildScreen, ChildUiState, LauncherApp,
+    QuizChoiceDto, QuizLockDto, QuizPromptDto,
+};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistedChildSession {
+    pub paired: bool,
+    pub child_id: Option<String>,
+    pub child_name: String,
+    pub pin_hash: Option<String>,
+    pub policy: ChildPolicy,
+    pub session: SessionSnapshot,
+    pub checklist_complete: bool,
+    pub elapsed_ms: i64,
+    pub saved_epoch_day: i64,
+    pub saved_wall_ms: i64,
+    #[serde(default)]
+    pub active_app_id: Option<String>,
+    #[serde(default)]
+    pub active_app_name: Option<String>,
+    #[serde(default)]
+    pub app_usage_seconds: HashMap<String, u64>,
+    #[serde(default)]
+    pub app_display_names: HashMap<String, String>,
+    #[serde(default)]
+    pub quiz_seconds_today: u64,
+    #[serde(default)]
+    pub quiz_attempts_today: u32,
+    #[serde(default)]
+    pub quiz_passes_today: u32,
+    #[serde(default)]
+    pub daily_usage_history: HashMap<String, HashMap<String, u32>>,
+    #[serde(default)]
+    pub daily_total_history: HashMap<String, u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChildReportTelemetry {
+    pub child_id: Option<String>,
+    pub child_name: String,
+    pub minutes_used_today: u32,
+    pub minutes_by_app: HashMap<String, u32>,
+    pub app_labels: HashMap<String, String>,
+    pub quiz_minutes_today: u32,
+    pub quiz_attempts_today: u32,
+    pub quiz_passes_today: u32,
+    pub daily_usage_history: HashMap<String, HashMap<String, u32>>,
+    pub daily_total_history: HashMap<String, u32>,
+}
+
+fn session_file_path(secrets_dir: Option<&Path>) -> Option<PathBuf> {
+    if let Some(dir) = secrets_dir {
+        return Some(dir.join("child_session.json"));
+    }
+    if let Some(proj) = directories::ProjectDirs::from("com", "MeritScreen", "MeritScreen") {
+        let dir = proj.config_dir();
+        let _ = std::fs::create_dir_all(dir);
+        Some(dir.join("child_session.json"))
+    } else {
+        let dir = std::env::temp_dir().join("meritscreen");
+        let _ = std::fs::create_dir_all(&dir);
+        Some(dir.join("child_session.json"))
+    }
+}
+
+struct ActiveQuiz {
+    questions: Vec<QuizQuestion>,
+    index: usize,
+    correct: u32,
+    used_ids: HashSet<String>,
+    skills: HashMap<String, TopicSkill>,
+    lock_until_ms: Option<i64>,
+    last_wrong_concept: Option<String>,
+}
+
+struct Inner {
+    paired: bool,
+    child_id: Option<String>,
+    child_name: String,
+    age_band: AgeBand,
+    pin_hash: Option<String>,
+    checklist: Vec<ChecklistItem>,
+    checklist_complete: bool,
+    policy: ChildPolicy,
+    rules: Vec<AppRule>,
+    session: SessionSnapshot,
+    bank: Vec<QuizQuestion>,
+    pack_source: String,
+    elapsed_ms: i64,
+    quiz: Option<ActiveQuiz>,
+    last_feedback: Option<meritscreen_core::QuizAnswerFeedback>,
+    last_result: Option<meritscreen_core::QuizSessionResult>,
+    screen_override: Option<ChildScreen>,
+    secrets_dir: Option<PathBuf>,
+    active_app_id: Option<String>,
+    active_app_name: Option<String>,
+    app_usage_seconds: HashMap<String, u64>,
+    app_display_names: HashMap<String, String>,
+    quiz_seconds_today: u64,
+    quiz_attempts_today: u32,
+    quiz_passes_today: u32,
+    daily_usage_history: HashMap<String, HashMap<String, u32>>,
+    daily_total_history: HashMap<String, u32>,
+}
+
+pub struct ChildRuntime {
+    inner: Mutex<Inner>,
+}
+
+impl Default for ChildRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ChildRuntime {
+    pub fn new() -> Self {
+        Self::new_with_dir(None)
+    }
+
+    /// Use file-backed secrets (tests / isolation).
+    pub fn with_secrets_dir(dir: impl Into<PathBuf>) -> Self {
+        let p = dir.into();
+        Self::new_with_dir(Some(p))
+    }
+
+    fn new_with_dir(secrets_dir: Option<PathBuf>) -> Self {
+        let bank = load_builtin_bank().unwrap_or_default();
+        let pack_source = if bank.is_empty() {
+            "empty".into()
+        } else {
+            "builtin".into()
+        };
+        let policy = ChildPolicy {
+            quiz_mode: QuizMode::DeviceInterval,
+            quiz_interval_minutes: 50,
+            ..ChildPolicy::default()
+        };
+        let mut inner = Inner {
+            paired: false,
+            child_id: None,
+            child_name: String::new(),
+            age_band: AgeBand::Age7To9,
+            pin_hash: None,
+            checklist: default_checklist(),
+            checklist_complete: false,
+            policy,
+            rules: demo_rules(),
+            session: SessionSnapshot::default(),
+            bank,
+            pack_source,
+            elapsed_ms: 0,
+            quiz: None,
+            last_feedback: None,
+            last_result: None,
+            screen_override: None,
+            secrets_dir: secrets_dir.clone(),
+            active_app_id: None,
+            active_app_name: None,
+            app_usage_seconds: HashMap::new(),
+            app_display_names: HashMap::new(),
+            quiz_seconds_today: 0,
+            quiz_attempts_today: 0,
+            quiz_passes_today: 0,
+            daily_usage_history: HashMap::new(),
+            daily_total_history: HashMap::new(),
+        };
+
+        // Restore persisted session across app restart / PC reboot
+        if let Some(path) = session_file_path(secrets_dir.as_deref()) {
+            if path.exists() {
+                if let Ok(raw) = std::fs::read_to_string(&path) {
+                    if let Ok(persisted) = serde_json::from_str::<PersistedChildSession>(&raw) {
+                        if persisted.paired {
+                            inner.paired = true;
+                            inner.child_id = persisted.child_id;
+                            inner.child_name = persisted.child_name;
+                            inner.pin_hash = persisted.pin_hash;
+                            inner.policy = persisted.policy;
+                            inner.checklist_complete = persisted.checklist_complete;
+                            inner.elapsed_ms = persisted.elapsed_ms;
+
+                            // Handle calendar day rollover:
+                            let now_day = chrono::Local::now().date_naive().num_days_from_ce() as i64;
+                            let mut restored_session = persisted.session;
+                            let mut app_usage = persisted.app_usage_seconds;
+                            let app_labels = persisted.app_display_names;
+                            let mut quiz_seconds = persisted.quiz_seconds_today;
+                            let mut quiz_attempts = persisted.quiz_attempts_today;
+                            let mut quiz_passes = persisted.quiz_passes_today;
+                            let mut daily_usage = persisted.daily_usage_history;
+                            let mut daily_total = persisted.daily_total_history;
+
+                            if persisted.saved_epoch_day != 0 && persisted.saved_epoch_day != now_day {
+                                if let Some(prev_date) = chrono::NaiveDate::from_num_days_from_ce_opt(persisted.saved_epoch_day as i32) {
+                                    let prev_date_str = prev_date.format("%Y-%m-%d").to_string();
+                                    let mut prev_mins_map = HashMap::new();
+                                    for (app, sec) in &app_usage {
+                                        let mins = if *sec >= 30 && *sec < 60 { 1 } else { (*sec / 60) as u32 };
+                                        if mins > 0 {
+                                            prev_mins_map.insert(app.clone(), mins);
+                                        }
+                                    }
+                                    daily_usage.insert(prev_date_str.clone(), prev_mins_map);
+                                    daily_total.insert(prev_date_str, restored_session.minutes_used_today);
+                                }
+                                restored_session.minutes_used_today = 0;
+                                app_usage.clear();
+                                quiz_seconds = 0;
+                                quiz_attempts = 0;
+                                quiz_passes = 0;
+                            }
+
+                            inner.session = restored_session;
+                            inner.active_app_id = persisted.active_app_id;
+                            inner.active_app_name = persisted.active_app_name;
+                            inner.app_usage_seconds = app_usage;
+                            inner.app_display_names = app_labels;
+                            inner.quiz_seconds_today = quiz_seconds;
+                            inner.quiz_attempts_today = quiz_attempts;
+                            inner.quiz_passes_today = quiz_passes;
+                            inner.daily_usage_history = daily_usage;
+                            inner.daily_total_history = daily_total;
+                            inner.screen_override = Some(ChildScreen::Launcher);
+                        }
+                    }
+                }
+            }
+        }
+
+        Self {
+            inner: Mutex::new(inner),
+        }
+    }
+
+    /// Flush in-memory session metrics to persistent storage immediately.
+    pub fn flush_persisted(&self) {
+        let g = self.inner.lock();
+        self.save_persisted(&g);
+    }
+
+    fn save_persisted(&self, g: &Inner) {
+        if !g.paired {
+            return;
+        }
+        let Some(path) = session_file_path(g.secrets_dir.as_deref()) else {
+            return;
+        };
+        let now_day = chrono::Local::now().date_naive().num_days_from_ce() as i64;
+        let now_wall = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let persisted = PersistedChildSession {
+            paired: g.paired,
+            child_id: g.child_id.clone(),
+            child_name: g.child_name.clone(),
+            pin_hash: g.pin_hash.clone(),
+            policy: g.policy.clone(),
+            session: g.session.clone(),
+            checklist_complete: g.checklist_complete,
+            elapsed_ms: g.elapsed_ms,
+            saved_epoch_day: now_day,
+            saved_wall_ms: now_wall,
+            active_app_id: g.active_app_id.clone(),
+            active_app_name: g.active_app_name.clone(),
+            app_usage_seconds: g.app_usage_seconds.clone(),
+            app_display_names: g.app_display_names.clone(),
+            quiz_seconds_today: g.quiz_seconds_today,
+            quiz_attempts_today: g.quiz_attempts_today,
+            quiz_passes_today: g.quiz_passes_today,
+            daily_usage_history: g.daily_usage_history.clone(),
+            daily_total_history: g.daily_total_history.clone(),
+        };
+        if let Ok(json) = serde_json::to_string_pretty(&persisted) {
+            let tmp = path.with_extension("tmp");
+            if std::fs::write(&tmp, json).is_ok() {
+                let _ = std::fs::rename(tmp, path);
+            }
+        }
+    }
+
+    fn delete_persisted(&self, g: &Inner) {
+        if let Some(path) = session_file_path(g.secrets_dir.as_deref()) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    pub fn is_paired(&self) -> bool {
+        self.inner.lock().paired
+    }
+
+    /// C01 — demo pairing: 6-digit code → local credential in secret store → Child role.
+    pub fn pair(&self, code: &str, child_name: Option<&str>) -> Result<(), AppError> {
+        let code = code.trim().replace(' ', "");
+        if code.len() != PAIRING_CODE_LENGTH as usize || !code.chars().all(|c| c.is_ascii_digit()) {
+            return Err(AppError::validation("Enter the 6-digit pairing code."));
+        }
+        // Demo: accept any valid-length code (parent demo mint or lab). Never log code.
+        info!(code_len = code.len(), "child pairing accepted (local demo)");
+
+        let store = self.secret_store();
+        let refresh = format!("child-refresh-{}", Uuid::new_v4());
+        store
+            .set(accounts::CHILD_REFRESH, &refresh)
+            .map_err(|_| AppError::unknown())?;
+
+        let mut g = self.inner.lock();
+        g.paired = true;
+        g.child_id = Some(format!("child-{}", Uuid::new_v4()));
+        g.child_name = child_name
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("Friend")
+            .to_string();
+        // Demo parent PIN for C14 — production syncs hash from family doc.
+        g.pin_hash = Some(hash_parent_pin("1234"));
+        g.checklist_complete = true;
+        g.checklist = default_checklist();
+        for item in &mut g.checklist {
+            item.done = true;
+        }
+        g.screen_override = Some(ChildScreen::Launcher);
+        // Start device-interval accrual immediately when paired!
+        g.session =
+            SessionEngine::start_device_interval(g.session.clone(), g.elapsed_ms, &g.policy);
+        g.quiz = None;
+        self.save_persisted(&g);
+        Ok(())
+    }
+
+    pub fn unpair(&self) -> Result<(), AppError> {
+        let store = self.secret_store();
+        let _ = store.delete(accounts::CHILD_REFRESH);
+        self.delete_persisted(&self.inner.lock());
+        let bank = load_builtin_bank().unwrap_or_default();
+        let secrets_dir = self.inner.lock().secrets_dir.clone();
+        let mut g = self.inner.lock();
+        g.paired = false;
+        g.child_id = None;
+        g.child_name.clear();
+        g.pin_hash = None;
+        g.checklist = default_checklist();
+        g.checklist_complete = false;
+        g.session = SessionSnapshot::default();
+        g.quiz = None;
+        g.last_feedback = None;
+        g.last_result = None;
+        g.screen_override = Some(ChildScreen::Pairing);
+        g.elapsed_ms = 0;
+        g.bank = bank;
+        g.pack_source = "builtin".into();
+        g.secrets_dir = secrets_dir;
+        g.policy = ChildPolicy {
+            quiz_mode: QuizMode::DeviceInterval,
+            quiz_interval_minutes: 50,
+            ..ChildPolicy::default()
+        };
+        g.rules = demo_rules();
+        g.app_usage_seconds.clear();
+        g.app_display_names.clear();
+        g.quiz_seconds_today = 0;
+        g.quiz_attempts_today = 0;
+        g.quiz_passes_today = 0;
+        g.daily_usage_history.clear();
+        g.daily_total_history.clear();
+        Ok(())
+    }
+
+    pub fn set_checklist_item(&self, id: &str, done: bool) -> Result<(), AppError> {
+        let mut g = self.inner.lock();
+        self.require_paired_locked(&g)?;
+        let item = g
+            .checklist
+            .iter_mut()
+            .find(|c| c.id == id)
+            .ok_or_else(|| AppError::not_found_msg("Checklist item not found."))?;
+        item.done = done;
+        Ok(())
+    }
+
+    pub fn complete_checklist(&self) -> Result<(), AppError> {
+        let mut g = self.inner.lock();
+        self.require_paired_locked(&g)?;
+        let missing: Vec<_> = g
+            .checklist
+            .iter()
+            .filter(|c| c.recommended && !c.done)
+            .map(|c| c.label.clone())
+            .collect();
+        if !missing.is_empty() {
+            return Err(AppError::validation(
+                "Finish the recommended setup steps before continuing.",
+            ));
+        }
+        g.checklist_complete = true;
+        g.screen_override = Some(ChildScreen::Launcher);
+        // Start device-interval accrual when entering launcher.
+        g.session =
+            SessionEngine::start_device_interval(g.session.clone(), g.elapsed_ms, &g.policy);
+        Ok(())
+    }
+
+    pub fn ui_state(&self) -> ChildUiState {
+        let mut g = self.inner.lock();
+        g.session = SessionEngine::expire_shield_if_needed(g.session.clone(), g.elapsed_ms);
+        self.clear_quiz_lock_if_expired(&mut g);
+        let screen = resolve_screen(&g);
+        let (rem_block, rem_sec, cooldown, daily_rem, ceiling_hit) =
+            snapshot_metrics(&g.session, g.policy.daily_ceiling_minutes, g.elapsed_ms);
+        let quiz = g.quiz.as_ref().and_then(|q| {
+            q.questions.get(q.index).map(|question| QuizPromptDto {
+                id: question.id.clone(),
+                prompt: question.prompt.clone(),
+                choices: question.choices.iter().map(QuizChoiceDto::from).collect(),
+                index: q.index as u32,
+                total: q.questions.len() as u32,
+                teach_title: question.mini_lesson.as_ref().map(|m| m.title.clone()),
+                teach_body: question
+                    .mini_lesson
+                    .as_ref()
+                    .map(|m| m.body_lines.clone())
+                    .unwrap_or_default(),
+            })
+        });
+        let quiz_lock = g.quiz.as_ref().and_then(|q| {
+            q.lock_until_ms.map(|until| {
+                let rem = ((until - g.elapsed_ms).max(0) / 1000) as u32;
+                QuizLockDto {
+                    remaining_seconds: rem,
+                    concept_line: g
+                        .last_feedback
+                        .as_ref()
+                        .map(|f| f.concept_line.clone())
+                        .unwrap_or_default(),
+                }
+            })
+        });
+        let mut minutes_by_app: HashMap<String, u32> = HashMap::new();
+        for (k, v) in &g.app_usage_seconds {
+            let mins = if *v >= 30 && *v < 60 { 1 } else { (*v / 60) as u32 };
+            if mins > 0 {
+                minutes_by_app.insert(k.clone(), mins);
+            }
+        }
+        let quiz_minutes = if g.quiz_seconds_today >= 30 && g.quiz_seconds_today < 60 {
+            1
+        } else {
+            (g.quiz_seconds_today / 60) as u32
+        };
+        ChildUiState {
+            paired: g.paired,
+            screen,
+            phase: g.session.phase,
+            child_name: g.child_name.clone(),
+            apps: g
+                .rules
+                .iter()
+                .filter(|r| r.allowed)
+                .map(|r| LauncherApp {
+                    app_id: r.app_id.clone(),
+                    display_name: if r.display_name.is_empty() {
+                        r.app_id.clone()
+                    } else {
+                        r.display_name.clone()
+                    },
+                    package_or_bundle_id: r.package_or_bundle_id.clone(),
+                    is_emergency: r.is_emergency,
+                    icon_tone: if r.is_emergency {
+                        "emergency".into()
+                    } else {
+                        "primary".into()
+                    },
+                })
+                .collect(),
+            checklist: g.checklist.clone(),
+            checklist_complete: g.checklist_complete,
+            minutes_used_today: g.session.minutes_used_today,
+            minutes_remaining_block: rem_block,
+            seconds_remaining_block: rem_sec,
+            block_duration_minutes: g.session.block_duration_minutes,
+            cooldown_seconds: cooldown,
+            daily_remaining_minutes: daily_rem,
+            ceiling_hit,
+            quiz,
+            quiz_lock,
+            last_feedback: g.last_feedback.clone(),
+            last_result: g.last_result.clone(),
+            pack_source: g.pack_source.clone(),
+            elapsed_ms: g.elapsed_ms,
+            active_app_id: g.active_app_id.clone(),
+            active_app_name: g.active_app_name.clone(),
+            minutes_by_app,
+            app_labels: g.app_display_names.clone(),
+            quiz_minutes_today: quiz_minutes,
+            quiz_attempts_today: g.quiz_attempts_today,
+            quiz_passes_today: g.quiz_passes_today,
+        }
+    }
+
+    /// Advance simulated monotonic clock (tests + lab “fast-forward”).
+    pub fn tick(&self, delta_ms: i64) -> ChildUiState {
+        let mut g = self.inner.lock();
+        if !g.paired || !g.checklist_complete {
+            return drop_and_state(self, g);
+        }
+        g.elapsed_ms = g.elapsed_ms.saturating_add(delta_ms.max(0));
+        let active = g.session.phase == SessionPhase::InBlock;
+        g.session = SessionEngine::tick(g.session.clone(), g.elapsed_ms, &g.policy, active);
+        if g.session.phase == SessionPhase::QuizDue && g.quiz.is_none() {
+            begin_quiz(&mut g);
+            g.screen_override = Some(ChildScreen::Quiz);
+        }
+        drop(g);
+        self.ui_state()
+    }
+
+    /// Second-by-second foreground monitoring tick.
+    /// Returns `(ChildUiState, bool)` where bool is `true` if a quiz just became due.
+    pub fn tick_foreground(
+        &self,
+        app_id: Option<&str>,
+        app_name: Option<&str>,
+        idle_seconds: u32,
+        is_screen_locked: bool,
+        delta_ms: i64,
+    ) -> (ChildUiState, bool) {
+        let mut g = self.inner.lock();
+        if !g.paired {
+            drop(g);
+            return (self.ui_state(), false);
+        }
+
+        g.elapsed_ms = g.elapsed_ms.saturating_add(delta_ms.max(0));
+        g.active_app_id = app_id.map(String::from);
+        g.active_app_name = app_name.map(String::from);
+
+        // Ensure session is in interval block if paired
+        if g.session.phase == SessionPhase::Idle {
+            g.session =
+                SessionEngine::start_device_interval(g.session.clone(), g.elapsed_ms, &g.policy);
+        }
+
+        // Active use predicate: user is active if NOT locked, idle_seconds < IDLE_THRESHOLD_SECONDS
+        // and either in DeviceInterval mode or a tracked app has focus
+        let is_active = !is_screen_locked
+            && idle_seconds < meritscreen_core::app_config::IDLE_THRESHOLD_SECONDS
+            && (g.policy.quiz_mode == QuizMode::DeviceInterval || app_id.is_some());
+        let is_in_quiz = g.session.phase == SessionPhase::QuizDue || g.quiz.is_some() || g.screen_override == Some(ChildScreen::Quiz);
+        let delta_secs = (delta_ms.max(0) as u64) / 1000;
+        if delta_secs > 0 {
+            if is_in_quiz && !is_screen_locked {
+                g.quiz_seconds_today = g.quiz_seconds_today.saturating_add(delta_secs);
+            } else if is_active {
+                if let Some(id) = app_id {
+                    let ent = g.app_usage_seconds.entry(id.to_string()).or_default();
+                    *ent = ent.saturating_add(delta_secs);
+                    if let Some(name) = app_name {
+                        g.app_display_names.insert(id.to_string(), name.to_string());
+                    }
+                }
+            }
+        }
+
+        let was_quiz_due = g.session.phase == SessionPhase::QuizDue;
+
+        g.session = SessionEngine::tick(g.session.clone(), g.elapsed_ms, &g.policy, is_active);
+
+        let mut newly_due = false;
+        if g.session.phase == SessionPhase::QuizDue && g.quiz.is_none() {
+            begin_quiz(&mut g);
+            g.screen_override = Some(ChildScreen::Quiz);
+            if !was_quiz_due {
+                newly_due = true;
+            }
+        }
+
+        // Debounced persistence: save to disk every 5 seconds or when newly due
+        if newly_due || (g.elapsed_ms % 5_000 < delta_ms) {
+            self.save_persisted(&g);
+        }
+
+        drop(g);
+        let state = self.ui_state();
+        (state, newly_due)
+    }
+
+    pub fn active_app(&self) -> (Option<String>, Option<String>) {
+        let g = self.inner.lock();
+        (g.active_app_id.clone(), g.active_app_name.clone())
+    }
+
+    pub fn launch_app(&self, app_id: &str) -> Result<ChildUiState, AppError> {
+        let mut g = self.inner.lock();
+        self.require_ready_locked(&g)?;
+        if matches!(
+            g.session.phase,
+            SessionPhase::QuizDue | SessionPhase::Shielded
+        ) {
+            return Err(AppError::validation(
+                "Finish the quiz or wait for the cooldown before opening apps.",
+            ));
+        }
+        let rule = g
+            .rules
+            .iter()
+            .find(|r| r.app_id == app_id)
+            .cloned()
+            .ok_or_else(|| AppError::not_found_msg("App not on the allowlist."))?;
+        g.session = SessionEngine::open_app(g.session.clone(), g.elapsed_ms, &rule, &g.policy);
+        if g.policy.quiz_mode == QuizMode::DeviceInterval && g.session.phase == SessionPhase::Idle {
+            g.session =
+                SessionEngine::start_device_interval(g.session.clone(), g.elapsed_ms, &g.policy);
+            g.session = SessionEngine::open_app(g.session.clone(), g.elapsed_ms, &rule, &g.policy);
+        }
+        drop(g);
+        Ok(self.ui_state())
+    }
+
+    /// Test/lab helper: force quiz_due and open quiz UI.
+    pub fn force_quiz_due(&self) -> Result<ChildUiState, AppError> {
+        let mut g = self.inner.lock();
+        self.require_ready_locked(&g)?;
+        g.session.phase = SessionPhase::QuizDue;
+        begin_quiz(&mut g);
+        g.screen_override = Some(ChildScreen::Quiz);
+        drop(g);
+        Ok(self.ui_state())
+    }
+
+    pub fn answer_quiz(&self, choice_id: &str) -> Result<ChildUiState, AppError> {
+        let mut g = self.inner.lock();
+        self.require_ready_locked(&g)?;
+        self.clear_quiz_lock_if_expired(&mut g);
+        let elapsed = g.elapsed_ms;
+
+        let (question, skill) = {
+            let quiz = g
+                .quiz
+                .as_mut()
+                .ok_or_else(|| AppError::validation("No quiz in progress."))?;
+            if let Some(until) = quiz.lock_until_ms {
+                if elapsed < until {
+                    return Err(AppError::validation(
+                        "Take a breath — the next question unlocks in a moment.",
+                    ));
+                }
+                quiz.lock_until_ms = None;
+            }
+            let question = quiz
+                .questions
+                .get(quiz.index)
+                .cloned()
+                .ok_or_else(|| AppError::validation("Quiz finished."))?;
+            let skill = quiz
+                .skills
+                .entry(question.topic.clone())
+                .or_insert_with(|| TopicSkill::new(question.topic.clone()))
+                .clone();
+            (question, skill)
+        };
+
+        let (feedback, updated) =
+            AdaptiveQuizEngine::grade_answer(&question, choice_id, &skill, 1_200);
+        let correct = feedback.correct;
+        g.last_feedback = Some(feedback);
+
+        {
+            let quiz = g
+                .quiz
+                .as_mut()
+                .ok_or_else(|| AppError::validation("No quiz in progress."))?;
+            quiz.skills.insert(question.topic.clone(), updated);
+            if correct {
+                quiz.correct += 1;
+            } else {
+                // C09c — 30s lock with concept content; no skip.
+                quiz.lock_until_ms = Some(elapsed + i64::from(QUIZ_LOCKOUT_SECONDS) * 1000);
+                quiz.last_wrong_concept = Some(question.concept_id.clone());
+            }
+            quiz.index += 1;
+            quiz.used_ids.insert(question.id);
+        }
+
+        // Finalize when all questions answered and not locked.
+        let done = g
+            .quiz
+            .as_ref()
+            .is_some_and(|q| q.index >= q.questions.len() && q.lock_until_ms.is_none());
+        if done {
+            finish_quiz(&mut g);
+            self.save_persisted(&g);
+        }
+        drop(g);
+        Ok(self.ui_state())
+    }
+
+    pub fn open_pin_menu(&self) -> Result<ChildUiState, AppError> {
+        let mut g = self.inner.lock();
+        self.require_paired_locked(&g)?;
+        g.screen_override = Some(ChildScreen::PinMenu);
+        drop(g);
+        Ok(self.ui_state())
+    }
+
+    pub fn set_pin_hash(&self, pin_hash: Option<String>) {
+        let mut g = self.inner.lock();
+        g.pin_hash = pin_hash;
+        self.save_persisted(&g);
+    }
+
+    pub fn pin_hash(&self) -> Option<String> {
+        self.inner.lock().pin_hash.clone()
+    }
+
+    pub fn verify_pin(&self, pin: &str) -> Result<bool, AppError> {
+        let g = self.inner.lock();
+        self.require_paired_locked(&g)?;
+        let pin = pin.trim();
+        let Some(hash) = g.pin_hash.as_deref() else {
+            return Ok(pin == "1234");
+        };
+        Ok(verify_parent_pin(pin, hash))
+    }
+
+    pub fn pin_unpair(&self, pin: &str) -> Result<(), AppError> {
+        if !self.verify_pin(pin)? {
+            return Err(AppError::validation("That PIN is incorrect."));
+        }
+        self.unpair()
+    }
+
+    pub fn force_skip_quiz(&self) -> Result<ChildUiState, AppError> {
+        let mut g = self.inner.lock();
+        g.quiz = None;
+        g.last_feedback = None;
+        let rule = g
+            .session
+            .active_app_id
+            .as_ref()
+            .and_then(|id| g.rules.iter().find(|r| &r.app_id == id));
+        g.session = SessionEngine::on_quiz_passed(g.session.clone(), g.elapsed_ms, rule, &g.policy, false);
+        // Ensure at least 15 minutes screen time grace window after parent PIN skip
+        let grace_ms = 15 * 60_000;
+        let current_grace = g.session.quiz_grace_until_elapsed_ms.unwrap_or(g.elapsed_ms);
+        g.session.quiz_grace_until_elapsed_ms = Some(current_grace.max(g.elapsed_ms + grace_ms));
+        g.screen_override = Some(ChildScreen::Launcher);
+        self.save_persisted(&g);
+        drop(g);
+        Ok(self.ui_state())
+    }
+
+    pub fn skip_quiz_with_pin(&self, pin: &str) -> Result<ChildUiState, AppError> {
+        if !self.verify_pin(pin)? {
+            return Err(AppError::validation("That PIN is incorrect."));
+        }
+        self.force_skip_quiz()
+    }
+
+    pub fn dismiss_pin_menu(&self) -> ChildUiState {
+        let mut g = self.inner.lock();
+        g.screen_override = None;
+        drop(g);
+        self.ui_state()
+    }
+
+    pub fn phase(&self) -> SessionPhase {
+        self.inner.lock().session.phase
+    }
+
+    pub fn get_report_telemetry(&self) -> ChildReportTelemetry {
+        let g = self.inner.lock();
+        let mut minutes_by_app: HashMap<String, u32> = HashMap::new();
+        for (k, v) in &g.app_usage_seconds {
+            let mins = if *v >= 30 && *v < 60 { 1 } else { (*v / 60) as u32 };
+            if mins > 0 {
+                minutes_by_app.insert(k.clone(), mins);
+            }
+        }
+        let quiz_minutes = if g.quiz_seconds_today >= 30 && g.quiz_seconds_today < 60 {
+            1
+        } else {
+            (g.quiz_seconds_today / 60) as u32
+        };
+
+        ChildReportTelemetry {
+            child_id: g.child_id.clone(),
+            child_name: g.child_name.clone(),
+            minutes_used_today: g.session.minutes_used_today,
+            minutes_by_app,
+            app_labels: g.app_display_names.clone(),
+            quiz_minutes_today: quiz_minutes,
+            quiz_attempts_today: g.quiz_attempts_today,
+            quiz_passes_today: g.quiz_passes_today,
+            daily_usage_history: g.daily_usage_history.clone(),
+            daily_total_history: g.daily_total_history.clone(),
+        }
+    }
+
+    fn secret_store(&self) -> SecretStore {
+        let dir = self.inner.lock().secrets_dir.clone();
+        if let Some(d) = dir {
+            SecretStore::file_backed(d)
+        } else {
+            SecretStore::platform()
+        }
+    }
+
+    fn require_paired_locked(&self, g: &Inner) -> Result<(), AppError> {
+        if g.paired {
+            Ok(())
+        } else {
+            Err(AppError::auth_msg("Pair this device first."))
+        }
+    }
+
+    fn require_ready_locked(&self, g: &Inner) -> Result<(), AppError> {
+        self.require_paired_locked(g)?;
+        if g.checklist_complete {
+            Ok(())
+        } else {
+            Err(AppError::validation("Finish setup before using apps."))
+        }
+    }
+
+    fn clear_quiz_lock_if_expired(&self, g: &mut Inner) {
+        let elapsed = g.elapsed_ms;
+        let should_finish = if let Some(quiz) = g.quiz.as_mut() {
+            if let Some(until) = quiz.lock_until_ms {
+                if elapsed >= until {
+                    quiz.lock_until_ms = None;
+                    quiz.index >= quiz.questions.len()
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if should_finish {
+            finish_quiz(g);
+        }
+    }
+}
+
+fn drop_and_state(rt: &ChildRuntime, g: parking_lot::MutexGuard<'_, Inner>) -> ChildUiState {
+    drop(g);
+    rt.ui_state()
+}
+
+fn resolve_screen(g: &Inner) -> ChildScreen {
+    if let Some(s) = g.screen_override {
+        if s == ChildScreen::PinMenu {
+            return ChildScreen::PinMenu;
+        }
+    }
+    if !g.paired {
+        return ChildScreen::Pairing;
+    }
+    if !g.checklist_complete {
+        return ChildScreen::Checklist;
+    }
+    match g.session.phase {
+        SessionPhase::QuizDue => ChildScreen::Quiz,
+        SessionPhase::Shielded => ChildScreen::FailLock,
+        SessionPhase::Idle | SessionPhase::InBlock => {
+            let ceiling = g
+                .policy
+                .daily_ceiling_minutes
+                .unwrap_or(meritscreen_core::app_config::DEFAULT_DAILY_CEILING_MINUTES);
+            if g.session.minutes_used_today >= ceiling && g.session.phase == SessionPhase::Idle {
+                ChildScreen::Ceiling
+            } else {
+                g.screen_override.unwrap_or(ChildScreen::Launcher)
+            }
+        }
+    }
+}
+
+fn begin_quiz(g: &mut Inner) {
+    if g.bank.is_empty() {
+        if let Ok(bank) = load_builtin_bank() {
+            g.bank = bank;
+            g.pack_source = "builtin".into();
+        }
+    }
+    let total = AdaptiveQuizEngine::questions_per_quiz(g.policy.questions_per_quiz) as usize;
+    let mut rng = StdRng::seed_from_u64(g.elapsed_ms as u64 ^ 0xC5_1D_u64);
+    let mut used = HashSet::new();
+    let mut questions = Vec::new();
+    let skills = HashMap::new();
+    let age = g.age_band;
+    let bank: Vec<QuizQuestion> = g
+        .bank
+        .iter()
+        .filter(|q| q.age_band == age)
+        .cloned()
+        .collect();
+    let bank = if bank.is_empty() {
+        g.bank.clone()
+    } else {
+        bank
+    };
+    for _ in 0..total {
+        if let Some(q) =
+            AdaptiveQuizEngine::pick_next(&bank, &skills, &HashSet::new(), &used, None, 2, &mut rng)
+        {
+            used.insert(q.id.clone());
+            questions.push(q);
+        }
+    }
+    if questions.is_empty() {
+        // Builtin fallback: take first N from bank.
+        questions = bank.iter().take(total.max(1)).cloned().collect();
+        g.pack_source = "builtin".into();
+    }
+    g.quiz = Some(ActiveQuiz {
+        questions,
+        index: 0,
+        correct: 0,
+        used_ids: used,
+        skills: HashMap::new(),
+        lock_until_ms: None,
+        last_wrong_concept: None,
+    });
+    g.last_result = None;
+    g.last_feedback = None;
+}
+
+fn finish_quiz(g: &mut Inner) {
+    let Some(quiz) = g.quiz.take() else {
+        return;
+    };
+    let total = quiz.questions.len() as u32;
+    let result = AdaptiveQuizEngine::finalize(quiz.correct, total, g.policy.pass_score_percent);
+    g.last_result = Some(result.clone());
+    g.quiz_attempts_today = g.quiz_attempts_today.saturating_add(1);
+    let rule = g
+        .session
+        .active_app_id
+        .as_ref()
+        .and_then(|id| g.rules.iter().find(|r| &r.app_id == id));
+    if result.passed {
+        g.quiz_passes_today = g.quiz_passes_today.saturating_add(1);
+        g.session =
+            SessionEngine::on_quiz_passed(g.session.clone(), g.elapsed_ms, rule, &g.policy, false);
+        g.screen_override = Some(ChildScreen::Launcher);
+    } else {
+        g.session = SessionEngine::on_quiz_failed(g.session.clone(), g.elapsed_ms, &g.policy, rule);
+        g.screen_override = Some(ChildScreen::FailLock);
+    }
+}
+
+fn demo_rules() -> Vec<AppRule> {
+    let mut browser = AppRule::new("browser", "app.browser");
+    browser.display_name = "Browser".into();
+    let mut calc = AppRule::new("calculator", "app.calculator");
+    calc.display_name = "Calculator".into();
+    let mut notes = AppRule::new("notes", "app.notes");
+    notes.display_name = "Notes".into();
+    let mut phone = AppRule::new("phone", "app.phone");
+    phone.display_name = "Phone".into();
+    phone.is_emergency = true;
+    vec![browser, calc, notes, phone]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn pairing_checklist_quiz_fail_pin_unpair() {
+        let dir = tempdir().unwrap();
+        let rt = ChildRuntime::with_secrets_dir(dir.path());
+        assert!(!rt.is_paired());
+        rt.pair("424242", Some("Sam")).unwrap();
+        assert!(rt.is_paired());
+
+        for id in ["standard_account", "accessibility_ok"] {
+            rt.set_checklist_item(id, true).unwrap();
+        }
+        rt.complete_checklist().unwrap();
+        let st = rt.ui_state();
+        assert_eq!(st.screen, ChildScreen::Launcher);
+        assert_eq!(st.pack_source, "builtin");
+        assert!(!st.apps.is_empty());
+
+        rt.launch_app("browser").unwrap();
+        // Fast-forward past interval → quiz due.
+        let interval_ms = i64::from(rt.inner.lock().policy.quiz_interval_minutes) * 60_000 + 1_000;
+        let st = rt.tick(interval_ms);
+        assert_eq!(st.phase, SessionPhase::QuizDue);
+        assert_eq!(st.screen, ChildScreen::Quiz);
+        assert!(st.quiz.is_some());
+
+        // Wrong answers until fail (or force fail via finishing with zeros).
+        rt.force_quiz_due().unwrap();
+        // Answer incorrectly by picking first choice repeatedly if needed.
+        for _ in 0..5 {
+            let st = rt.ui_state();
+            if st.phase != SessionPhase::QuizDue {
+                break;
+            }
+            if let Some(q) = st.quiz {
+                let choice = q.choices.first().map(|c| c.id.clone()).unwrap();
+                let _ = rt.answer_quiz(&choice);
+                // Skip lock waits in test.
+                rt.inner.lock().elapsed_ms += i64::from(QUIZ_LOCKOUT_SECONDS) * 1000 + 1;
+                if let Some(quiz) = rt.inner.lock().quiz.as_mut() {
+                    quiz.lock_until_ms = None;
+                }
+            } else {
+                break;
+            }
+        }
+        let st = rt.ui_state();
+        // Either still in quiz or shielded/launcher after pass — ensure engine ran.
+        assert!(matches!(
+            st.phase,
+            SessionPhase::QuizDue | SessionPhase::Shielded | SessionPhase::InBlock
+        ));
+
+        assert!(rt.verify_pin("1234").unwrap());
+        assert!(!rt.verify_pin("0000").unwrap());
+        rt.pin_unpair("1234").unwrap();
+        assert!(!rt.is_paired());
+    }
+
+    #[test]
+    fn test_skip_quiz_with_pin() {
+        let dir = tempdir().unwrap();
+        let rt = ChildRuntime::with_secrets_dir(dir.path());
+        rt.pair("222222", Some("Jordan")).unwrap();
+        for id in ["standard_account", "accessibility_ok"] {
+            rt.set_checklist_item(id, true).unwrap();
+        }
+        rt.complete_checklist().unwrap();
+        rt.force_quiz_due().unwrap();
+        assert_eq!(rt.ui_state().screen, ChildScreen::Quiz);
+
+        // Incorrect pin fails
+        assert!(rt.skip_quiz_with_pin("0000").is_err());
+        assert_eq!(rt.ui_state().screen, ChildScreen::Quiz);
+
+        // Correct pin skips quiz and returns to launcher
+        let st = rt.skip_quiz_with_pin("1234").unwrap();
+        assert_eq!(st.screen, ChildScreen::Launcher);
+        assert_eq!(st.phase, SessionPhase::InBlock);
+    }
+
+    #[test]
+    fn force_quiz_and_pass_path() {
+        let dir = tempdir().unwrap();
+        let rt = ChildRuntime::with_secrets_dir(dir.path());
+        rt.pair("111111", Some("Alex")).unwrap();
+        rt.set_checklist_item("standard_account", true).unwrap();
+        rt.set_checklist_item("accessibility_ok", true).unwrap();
+        rt.complete_checklist().unwrap();
+        rt.force_quiz_due().unwrap();
+
+        // Answer all correctly by selecting correct choice ids from bank.
+        loop {
+            let st = rt.ui_state();
+            if st.phase != SessionPhase::QuizDue {
+                break;
+            }
+            let Some(prompt) = st.quiz else { break };
+            let g = rt.inner.lock();
+            let q = g
+                .quiz
+                .as_ref()
+                .and_then(|aq| aq.questions.get(aq.index))
+                .cloned();
+            drop(g);
+            let Some(q) = q else { break };
+            let correct = q
+                .choices
+                .iter()
+                .find(|c| c.correct)
+                .map(|c| c.id.clone())
+                .unwrap_or_else(|| prompt.choices[0].id.clone());
+            rt.answer_quiz(&correct).unwrap();
+        }
+        let st = rt.ui_state();
+        assert_eq!(st.phase, SessionPhase::InBlock);
+        assert!(st.last_result.as_ref().is_some_and(|r| r.passed));
+    }
+
+    #[test]
+    fn test_screen_lock_pauses_active_time() {
+        let dir = tempdir().unwrap();
+        let rt = ChildRuntime::with_secrets_dir(dir.path());
+        rt.pair("222222", Some("Jordan")).unwrap();
+        rt.set_checklist_item("standard_account", true).unwrap();
+        rt.set_checklist_item("accessibility_ok", true).unwrap();
+        rt.complete_checklist().unwrap();
+
+        // 1. When screen is locked, clock should pause
+        let (st1, due1) = rt.tick_foreground(Some("com.google.Chrome"), Some("Google Chrome"), 0, true, 10_000);
+        assert!(!due1);
+        let sec1 = st1.seconds_remaining_block;
+
+        // Tick again while still locked
+        let (st2, _) = rt.tick_foreground(Some("com.google.Chrome"), Some("Google Chrome"), 0, true, 20_000);
+        assert_eq!(st2.seconds_remaining_block, sec1, "Timer must pause while screen is locked");
+
+        // 2. Unlock screen, clock should resume decrementing
+        let (st3, _) = rt.tick_foreground(Some("com.google.Chrome"), Some("Google Chrome"), 0, false, 5_000);
+        assert!(st3.seconds_remaining_block < sec1, "Timer must resume once screen is unlocked");
+    }
+
+    #[test]
+    fn test_persist_and_restore_across_reboot() {
+        let dir = tempdir().unwrap();
+        {
+            let rt1 = ChildRuntime::with_secrets_dir(dir.path());
+            rt1.pair("333333", Some("Maya")).unwrap();
+            rt1.set_checklist_item("standard_account", true).unwrap();
+            rt1.set_checklist_item("accessibility_ok", true).unwrap();
+            rt1.complete_checklist().unwrap();
+
+            // Active use for 12 seconds
+            for _ in 0..12 {
+                rt1.tick_foreground(Some("com.apple.Safari"), Some("Safari"), 0, false, 1_000);
+            }
+            rt1.flush_persisted();
+        }
+
+        // Simulate PC restart: construct a fresh runtime with the same directory
+        let rt2 = ChildRuntime::with_secrets_dir(dir.path());
+        assert!(rt2.is_paired(), "Child must remain paired after PC restart");
+        let st = rt2.ui_state();
+        assert_eq!(st.child_name, "Maya");
+        assert!(st.checklist_complete);
+        assert_eq!(st.active_app_name.as_deref(), Some("Safari"));
+        // 50 minutes = 3000s; after 12s active use, remaining should be 2988s
+        assert!(st.seconds_remaining_block <= 2990);
+    }
+
+    #[test]
+    fn test_skip_quiz_with_parent_pin() {
+        let dir = tempdir().unwrap();
+        let rt = ChildRuntime::with_secrets_dir(dir.path());
+        rt.pair("444444", Some("Jordan")).unwrap();
+        rt.complete_checklist().unwrap();
+        rt.force_quiz_due().unwrap();
+
+        let st = rt.ui_state();
+        assert_eq!(st.phase, SessionPhase::QuizDue);
+
+        // Incorrect PIN fails
+        let err = rt.skip_quiz_with_pin("9999");
+        assert!(err.is_err());
+
+        // Default PIN 1234 succeeds
+        let res = rt.skip_quiz_with_pin("1234").unwrap();
+        assert_eq!(res.phase, SessionPhase::InBlock);
+        assert!(res.quiz.is_none());
+
+        // Test with custom PIN
+        rt.set_pin_hash(Some(hash_parent_pin("5678")));
+        rt.force_quiz_due().unwrap();
+        assert_eq!(rt.ui_state().phase, SessionPhase::QuizDue);
+
+        // Custom PIN succeeds
+        let res2 = rt.skip_quiz_with_pin("5678").unwrap();
+        assert_eq!(res2.phase, SessionPhase::InBlock);
+        assert!(res2.quiz.is_none());
+    }
+
+    #[test]
+    fn test_quiz_pass_timer_continues_in_next_session() {
+        let dir = tempdir().unwrap();
+        let rt = ChildRuntime::with_secrets_dir(dir.path());
+        rt.pair("555555", Some("Leo")).unwrap();
+        rt.complete_checklist().unwrap();
+
+        // 1. Force a quiz due
+        rt.force_quiz_due().unwrap();
+        assert_eq!(rt.ui_state().phase, SessionPhase::QuizDue);
+
+        // 2. Pass the quiz by answering correctly
+        loop {
+            let st = rt.ui_state();
+            if st.phase != SessionPhase::QuizDue {
+                break;
+            }
+            let Some(prompt) = st.quiz else { break };
+            let g = rt.inner.lock();
+            let q = g
+                .quiz
+                .as_ref()
+                .and_then(|aq| aq.questions.get(aq.index))
+                .cloned();
+            drop(g);
+            let Some(q) = q else { break };
+            let correct = q
+                .choices
+                .iter()
+                .find(|c| c.correct)
+                .map(|c| c.id.clone())
+                .unwrap_or_else(|| prompt.choices[0].id.clone());
+            rt.answer_quiz(&correct).unwrap();
+        }
+
+        let st_passed = rt.ui_state();
+        assert_eq!(st_passed.phase, SessionPhase::InBlock);
+        assert_eq!(st_passed.screen, ChildScreen::Launcher);
+        assert!(st_passed.last_result.as_ref().is_some_and(|r| r.passed));
+        let initial_rem_sec = st_passed.seconds_remaining_block;
+        assert!(initial_rem_sec > 0, "Next session must have positive seconds remaining");
+
+        // 3. User uses desktop actively (e.g. mouse/trackpad browsing, idle_seconds = 5s)
+        let (st_tick1, newly_due1) = rt.tick_foreground(Some("com.apple.Safari"), Some("Safari"), 5, false, 1000);
+        assert!(!newly_due1);
+        assert_eq!(st_tick1.seconds_remaining_block, initial_rem_sec - 1, "Timer must continue counting down on tick 1");
+
+        let (st_tick2, _) = rt.tick_foreground(Some("com.apple.Safari"), Some("Safari"), 6, false, 1000);
+        assert_eq!(st_tick2.seconds_remaining_block, initial_rem_sec - 2, "Timer must continue counting down on tick 2");
+
+        // 4. Tick forward 10 seconds: timer must decrement by 10
+        let (st_tick12, _) = rt.tick_foreground(Some("com.apple.Safari"), Some("Safari"), 10, false, 10_000);
+        assert_eq!(st_tick12.seconds_remaining_block, initial_rem_sec - 12, "Timer must advance smoothly across larger delta");
+
+        // 5. Active computer use even if on Desktop (app_id = None) still counts in DeviceInterval mode
+        let (st_desktop, _) = rt.tick_foreground(None, None, 2, false, 1000);
+        assert_eq!(st_desktop.seconds_remaining_block, initial_rem_sec - 13, "Timer must continue even on desktop/Finder");
+    }
+
+    #[test]
+    fn test_quiz_skip_timer_continues() {
+        let dir = tempdir().unwrap();
+        let rt = ChildRuntime::with_secrets_dir(dir.path());
+        rt.pair("666666", Some("Sam")).unwrap();
+        rt.complete_checklist().unwrap();
+
+        rt.force_quiz_due().unwrap();
+        assert_eq!(rt.ui_state().phase, SessionPhase::QuizDue);
+
+        let st_skipped = rt.skip_quiz_with_pin("1234").unwrap();
+        assert_eq!(st_skipped.phase, SessionPhase::InBlock);
+        assert_eq!(st_skipped.screen, ChildScreen::Launcher);
+        let rem_sec = st_skipped.seconds_remaining_block;
+
+        // Verify timer continues counting down
+        let (st1, _) = rt.tick_foreground(Some("app.browser"), Some("Browser"), 0, false, 1000);
+        assert_eq!(st1.seconds_remaining_block, rem_sec - 1);
+
+        let (st2, _) = rt.tick_foreground(Some("app.browser"), Some("Browser"), 0, false, 2000);
+        assert_eq!(st2.seconds_remaining_block, rem_sec - 3);
+    }
+}
+

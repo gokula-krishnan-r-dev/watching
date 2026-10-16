@@ -28,7 +28,7 @@ public final class MeritScreenDatabase: @unchecked Sendable {
         }
 
         // Shared App Group storage container
-        let appGroupID = "group.com.watching.app"
+        let appGroupID = ScreenTimeSharedStore.appGroupId
         var storeURL: URL?
 
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {

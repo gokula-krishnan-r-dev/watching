@@ -1,0 +1,52 @@
+{
+  "id": "grade_correct_mastery_streak",
+  "description": "Correct answer at level 4 adds concept to masteredConcepts",
+  "question": {
+    "id": "q_math_mult_1",
+    "ageBand": "AGE_7_TO_9",
+    "topic": "math",
+    "conceptId": "multiplication_table",
+    "conceptTitle": "Multiplication Tables",
+    "difficulty": 4,
+    "prompt": "What is 6 x 7?",
+    "choices": [
+      { "id": "c1", "text": "42", "correct": true },
+      { "id": "c2", "text": "48", "correct": false },
+      { "id": "c3", "text": "36", "correct": false }
+    ],
+    "whyCorrect": "6 times 7 is 42.",
+    "whyWrongByChoice": {
+      "c2": "48 is 6 x 8.",
+      "c3": "36 is 6 x 6."
+    },
+    "conceptExplainer": "Multiplication is repeated addition of groups.",
+    "language": "en",
+    "interactionType": "TAP_TEXT",
+    "source": "builtin"
+  },
+  "choiceId": "c1",
+  "initialSkill": {
+    "topic": "math",
+    "level": 4,
+    "streakCorrect": 1,
+    "weakConcepts": [],
+    "conceptTitles": {},
+    "masteredConcepts": [],
+    "tierLabel": "advanced",
+    "totalAttempts": 12,
+    "totalCorrect": 10,
+    "avgResponseTimeMs": 1400
+  },
+  "responseTimeMs": 1100,
+  "expectFeedback": {
+    "correct": true,
+    "resultLine": "That’s it",
+    "nextLevel": 5
+  },
+  "expectSkill": {
+    "level": 5,
+    "streakCorrect": 0,
+    "containsWeakConcept": null,
+    "containsMasteredConcept": "multiplication_table"
+  }
+}

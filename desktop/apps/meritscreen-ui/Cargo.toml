@@ -1,0 +1,38 @@
+[package]
+name = "meritscreen-ui"
+default-run = "watching"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Watching desktop application — parent sanctuary & child guardian"
+rust-version.workspace = true
+
+[lib]
+name = "meritscreen_ui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+directories = { workspace = true }
+meritscreen-child = { workspace = true }
+meritscreen-core = { workspace = true }
+meritscreen-enforcement = { workspace = true }
+meritscreen-ipc = { workspace = true }
+meritscreen-parent = { workspace = true }
+meritscreen-security = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tauri = { workspace = true, features = ["tray-icon"] }
+tracing = { workspace = true }
+
+[features]
+# Production / `cargo run`: load bundled `ui/dist` via asset protocol.
+# `cargo tauri dev` disables this so the Vite `devUrl` is used instead.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -1,0 +1,17 @@
+[Unit]
+Description=MeritScreen Guardian Service
+Documentation=https://github.com/gokul/MeritScreen
+After=network.target local-fs.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/meritscreen-guardian --systemd-service
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target

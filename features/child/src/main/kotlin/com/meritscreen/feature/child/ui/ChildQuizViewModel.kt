@@ -73,6 +73,14 @@ sealed interface QuizUiStep {
         val correctChoiceText: String? = null,
         val resource: LearningResource? = null,
         val showResourceModal: Boolean = false,
+        /**
+         * Mandatory Learn More teaching pause after a wrong answer.
+         * When true, the resource modal opens automatically and dismiss is gated
+         * until [learnMoreLockSecondsRemaining] reaches 0.
+         */
+        val learnMoreRequired: Boolean = false,
+        /** Seconds left before Learn More can be dismissed. Meaningful only when [learnMoreRequired]. */
+        val learnMoreLockSecondsRemaining: Int = 0,
         val activeFullscreenVideo: LearningResourceVideo? = null,
     ) : QuizUiStep
     data class Feedback(
@@ -419,12 +427,17 @@ class ChildQuizViewModel @Inject constructor(
                         whyWrongText = whyWrong,
                         correctChoiceText = correctText,
                         resource = initialResource,
+                        // Wrong answers auto-open Learn More and stick for QUIZ_LOCKOUT_SECONDS.
+                        showResourceModal = true,
+                        learnMoreRequired = true,
+                        learnMoreLockSecondsRemaining = AppConfig.QUIZ_LOCKOUT_SECONDS,
                     ),
                     appLabel = appLabel,
                     childName = childName,
                     ageBand = ageBand,
                 ),
             )
+            startLearnMoreLock()
 
             // Asynchronously fetch Firebase AI enrichment without blocking
             val wrongChoice = current.choices.firstOrNull { it.id == choiceId }
@@ -454,6 +467,17 @@ class ChildQuizViewModel @Inject constructor(
     }
 
     fun proceedToNextQuestion() {
+        val visible = _uiState.value as? UiState.Success ?: return
+        val step = visible.data.step as? QuizUiStep.Question ?: return
+        // Wrong answers must complete the Learn More teaching pause first.
+        if (step.isCorrect == false && step.learnMoreRequired) {
+            if (step.learnMoreLockSecondsRemaining > 0) {
+                openResourceModal()
+                return
+            }
+            dismissLearnMoreAndContinue()
+            return
+        }
         advanceAfterFeedback()
     }
 
@@ -461,19 +485,72 @@ class ChildQuizViewModel @Inject constructor(
         val cur = _uiState.value
         if (cur is UiState.Success && cur.data.step is QuizUiStep.Question) {
             val step = cur.data.step as QuizUiStep.Question
+            if (step.resource == null) return
             _uiState.value = UiState.Success(
                 cur.data.copy(step = step.copy(showResourceModal = true)),
             )
         }
     }
 
+    /**
+     * Dismisses Learn More. During a mandatory teaching lock this is a no-op until the
+     * countdown reaches zero; once unlocked it advances to the next question.
+     */
     fun closeResourceModal() {
+        dismissLearnMoreAndContinue()
+    }
+
+    private fun dismissLearnMoreAndContinue() {
         val cur = _uiState.value
-        if (cur is UiState.Success && cur.data.step is QuizUiStep.Question) {
-            val step = cur.data.step as QuizUiStep.Question
+        if (cur !is UiState.Success || cur.data.step !is QuizUiStep.Question) return
+        val step = cur.data.step as QuizUiStep.Question
+        if (!step.showResourceModal && !step.learnMoreRequired) return
+
+        if (step.learnMoreRequired && step.learnMoreLockSecondsRemaining > 0) {
+            // Sticky gate: keep modal open until the teaching window ends.
+            if (!step.showResourceModal) {
+                _uiState.value = UiState.Success(
+                    cur.data.copy(step = step.copy(showResourceModal = true)),
+                )
+            }
+            return
+        }
+
+        lockoutCountdownJob?.cancel()
+        if (step.learnMoreRequired) {
+            advanceAfterFeedback()
+        } else {
             _uiState.value = UiState.Success(
                 cur.data.copy(step = step.copy(showResourceModal = false)),
             )
+        }
+    }
+
+    /**
+     * Starts the AppConfig.QUIZ_LOCKOUT_SECONDS Learn More teaching pause.
+     * Uses a ViewModel-scoped coroutine so the countdown survives rotation and
+     * advances with virtual time in unit tests.
+     */
+    private fun startLearnMoreLock() {
+        lockoutCountdownJob?.cancel()
+        lockoutCountdownJob = viewModelScope.launch {
+            var remaining = AppConfig.QUIZ_LOCKOUT_SECONDS
+            while (remaining > 0) {
+                delay(1_000L)
+                remaining -= 1
+                val cur = _uiState.value
+                if (cur !is UiState.Success || cur.data.step !is QuizUiStep.Question) break
+                val step = cur.data.step as QuizUiStep.Question
+                if (!step.learnMoreRequired || step.isCorrect != false) break
+                _uiState.value = UiState.Success(
+                    cur.data.copy(
+                        step = step.copy(
+                            learnMoreLockSecondsRemaining = remaining,
+                            showResourceModal = true,
+                        ),
+                    ),
+                )
+            }
         }
     }
 

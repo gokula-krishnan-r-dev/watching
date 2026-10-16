@@ -35,8 +35,8 @@ android {
     defaultConfig {
         applicationId = "com.watching.app"
         // Closed tester wave (10+ sideload installs) — bump when shipping a new APK.
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
         // Demo / local backend: ./gradlew :app:installDebug -PuseFirebaseEmulators
         // Release / internal never connect to emulator hosts.
         buildConfigField(

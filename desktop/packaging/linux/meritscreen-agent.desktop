@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=MeritScreen Agent
+Comment=MeritScreen Session Agent
+Exec=/usr/bin/meritscreen-agent
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-KDE-autostart-after=panel

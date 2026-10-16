@@ -215,17 +215,68 @@ wait_for_boot() {
   done
 }
 
+ensure_avd_exists() {
+  local name="$1"
+  emulator -list-avds 2>/dev/null | grep -qx "$name" && return 0
+  command -v avdmanager >/dev/null 2>&1 || die "AVD '$name' not found and avdmanager is missing"
+  local image="system-images;android-34;google_apis;arm64-v8a"
+  sdkmanager --list_installed 2>/dev/null | grep -q "$image" \
+    || die "AVD '$name' not found. Install image with: sdkmanager \"$image\" then re-run make dev"
+  log "Creating missing AVD ${name} (${image})"
+  # Non-interactive; shrink userdata so it fits on small disks (~8–12GB free).
+  echo no | avdmanager create avd -n "$name" -k "$image" -d pixel_6 --force >/dev/null
+  local cfg="${ANDROID_AVD_HOME:-$HOME/.android/avd}/${name}.avd/config.ini"
+  if [[ -f "$cfg" ]]; then
+    # Emulator config.ini may use "key = value" or "key=value".
+    python3 - "$cfg" <<'PY' 2>/dev/null || true
+import sys
+from pathlib import Path
+p = Path(sys.argv[1])
+wanted = {
+    "disk.dataPartition.size": "2048M",
+    "hw.ramSize": "1024",
+    "hw.cpu.ncore": "2",
+    "hw.keyboard": "yes",
+}
+lines = p.read_text().splitlines()
+seen = set()
+out = []
+for line in lines:
+    if "=" not in line or line.strip().startswith("#"):
+        out.append(line)
+        continue
+    key = line.split("=", 1)[0].strip()
+    if key in wanted:
+        out.append(f"{key} = {wanted[key]}")
+        seen.add(key)
+    else:
+        out.append(line)
+for key, val in wanted.items():
+    if key not in seen:
+        out.append(f"{key} = {val}")
+p.write_text("\n".join(out) + "\n")
+PY
+  fi
+  emulator -list-avds 2>/dev/null | grep -qx "$name" || die "Failed to create AVD '$name'"
+}
+
 start_avd() {
   local name="$1" port="$2"
   command -v emulator >/dev/null 2>&1 || die "Android emulator binary not on PATH (ANDROID_HOME=$ANDROID_HOME)"
-  emulator -list-avds 2>/dev/null | grep -qx "$name" || die "AVD '$name' not found. Create it or set AVD_NAME=..."
+  ensure_avd_exists "$name"
 
-  log "Starting AVD ${name} on :${port} (lite: 768MB, quiet)"
+  # Apple Silicon: host/Metal GPU uses far less RAM than SwiftShader (avoids OOM on 8GB Macs).
+  local gpu="swiftshader_indirect"
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64|Darwin-aarch64) gpu="host" ;;
+  esac
+
+  log "Starting AVD ${name} on :${port} (lite: 768MB, gpu=${gpu})"
   # Lean flags for ~8GB Macs; silence emulator console noise.
   nohup emulator -avd "$name" \
     -port "$port" \
     -no-boot-anim -no-audio -no-snapshot-save \
-    -gpu swiftshader_indirect -memory 768 -cores 2 \
+    -gpu "$gpu" -memory 768 -cores 2 \
     -logcat '*:S' \
     >/dev/null 2>&1 &
   export ANDROID_SERIAL="emulator-${port}"

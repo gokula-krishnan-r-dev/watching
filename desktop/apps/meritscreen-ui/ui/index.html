@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Watching — Parent Sanctuary</title>
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app" class="shell">
+      <header class="brand-bar" data-tauri-drag-region>
+        <div class="brand-group" data-tauri-drag-region>
+          <div class="brand-logo-frame">
+            <img src="/logo.png" alt="Watching logo" class="brand-logo" onerror="this.style.display='none'; document.getElementById('brand-fallback').style.display='flex';" />
+            <div id="brand-fallback" class="brand-fallback-icon" style="display:none;">🛡️</div>
+          </div>
+          <div class="brand-text-wrap" data-tauri-drag-region>
+            <h1 class="brand">Watching</h1>
+            <span class="brand-tag">Parent Sanctuary</span>
+          </div>
+        </div>
+
+        <nav id="app-breadcrumbs" class="app-breadcrumbs" aria-label="Breadcrumbs" style="display: none;"></nav>
+
+        <div class="header-controls">
+          <button type="button" id="btn-tray-popover-toggle" class="chip chip-icon" title="Menu Bar & System Tray Popover (⌘/Ctrl+T)" aria-label="Menu Bar and System Tray Popover">
+            🛡️
+          </button>
+          <button type="button" id="btn-shortcuts-help" class="chip chip-icon" title="Keyboard Shortcuts (Press ?)" aria-label="Keyboard Shortcuts">
+            ⌨️
+          </button>
+          <div class="appearance" role="group" aria-label="Appearance">
+            <button type="button" data-appearance="system" class="chip">System</button>
+            <button type="button" data-appearance="light" class="chip">Light</button>
+            <button type="button" data-appearance="dark" class="chip">Dark</button>
+          </div>
+        </div>
+      </header>
+
+      <main id="view" class="view" aria-live="polite">
+        <p class="muted">Loading…</p>
+      </main>
+
+      <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+      <!-- Live Menu Bar / System Tray Popover Preview Modal -->
+      <div id="tray-preview-modal" class="modal-overlay tray-modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-label="Menu Bar and System Tray Popover">
+        <div class="tray-modal-anchor">
+          <div id="tray-popover-modal-content"></div>
+        </div>
+      </div>
+
+      <!-- Global Keyboard Shortcuts Modal -->
+      <div id="shortcuts-modal" class="modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+        <div class="modal-dialog">
+          <div class="modal-header">
+            <div class="modal-icon-info">⌨️</div>
+            <div class="modal-header-text">
+              <h3 id="shortcuts-title" class="modal-title">Keyboard Shortcuts</h3>
+              <p class="modal-sub">Fast desktop navigation across Watching</p>
+            </div>
+          </div>
+          <div class="modal-body">
+            <div class="shortcuts-grid">
+              <div class="shortcut-row">
+                <span class="shortcut-desc">Menu Bar / Tray Popover</span>
+                <span class="shortcut-keys"><kbd class="kbd-key">⌘ / Ctrl</kbd> + <kbd class="kbd-key">T</kbd></span>
+              </div>
+              <div class="shortcut-row">
+                <span class="shortcut-desc">Account & Settings</span>
+                <span class="shortcut-keys"><kbd class="kbd-key">⌘ / Ctrl</kbd> + <kbd class="kbd-key">,</kbd></span>
+              </div>
+              <div class="shortcut-row">
+                <span class="shortcut-desc">Add New Child</span>
+                <span class="shortcut-keys"><kbd class="kbd-key">⌘ / Ctrl</kbd> + <kbd class="kbd-key">N</kbd></span>
+              </div>
+              <div class="shortcut-row">
+                <span class="shortcut-desc">Refresh Telemetry</span>
+                <span class="shortcut-keys"><kbd class="kbd-key">⌘ / Ctrl</kbd> + <kbd class="kbd-key">R</kbd></span>
+              </div>
+              <div class="shortcut-row">
+                <span class="shortcut-desc">Close Modal / Go Back</span>
+                <span class="shortcut-keys"><kbd class="kbd-key">Esc</kbd></span>
+              </div>
+              <div class="shortcut-row">
+                <span class="shortcut-desc">Quiz Choices (Child Mode)</span>
+                <span class="shortcut-keys"><kbd class="kbd-key">1</kbd> – <kbd class="kbd-key">4</kbd></span>
+              </div>
+              <div class="shortcut-row">
+                <span class="shortcut-desc">Toggle Shortcuts Help</span>
+                <span class="shortcut-keys"><kbd class="kbd-key">?</kbd></span>
+              </div>
+            </div>
+          </div>
+          <div class="modal-actions-row">
+            <button class="btn btn-primary" id="btn-close-shortcuts">Got it</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

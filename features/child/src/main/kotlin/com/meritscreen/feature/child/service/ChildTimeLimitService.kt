@@ -359,7 +359,7 @@ class ChildTimeLimitService : Service() {
         // Show high-priority notification with full-screen intent so Android displays it immediately
         val appName = activePackage?.substringAfterLast('.') ?: "App"
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(com.meritscreen.core.ui.R.drawable.ic_watching_notification)
             .setContentTitle("Time’s up for $appName! ⏳")
             .setContentText("Answer 3 quick fun questions to unlock more minutes.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -439,7 +439,7 @@ class ChildTimeLimitService : Service() {
         } else null
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(com.meritscreen.core.ui.R.drawable.ic_watching_notification)
             .setContentTitle("Watching Protection")
             .setContentText(statusText)
             .setPriority(NotificationCompat.PRIORITY_LOW)

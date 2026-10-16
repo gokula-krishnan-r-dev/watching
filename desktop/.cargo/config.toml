@@ -1,0 +1,4 @@
+# Shared desktop Cargo config. Keep build flags conservative for CI.
+[alias]
+xtest = "test --workspace"
+xcheck = "check --workspace"

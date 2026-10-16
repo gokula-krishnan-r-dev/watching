@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 public enum QuizFlowStep: Equatable {
@@ -30,14 +31,28 @@ public final class QuizFlowViewModel {
     public var finalResult: QuizSessionResult?
     public var unlockedSticker: ChildSticker?
 
+    /// Offline Learn More resource auto-shown after a wrong answer.
+    public var learningResource: LearningResource?
+    /// Mandatory teaching pause remaining seconds (`AppConfig.quizLockoutSeconds`).
+    public var learnMoreLockSecondsRemaining: Int = 0
+    /// True while a wrong-answer Learn More pause is active (sticky until unlock + continue).
+    public var learnMoreRequired: Bool = false
+
     public var currentQuestion: QuizQuestion? {
         guard currentQuestionIndex < questions.count else { return nil }
         return questions[currentQuestionIndex]
     }
 
+    public var canContinueAfterExplanation: Bool {
+        guard let feedback else { return false }
+        if feedback.correct { return true }
+        return learnMoreRequired && learnMoreLockSecondsRemaining <= 0
+    }
+
     private let localStore: ChildLocalStore
     private let policy: ChildPolicy
     private var questionStartTimeMs: Int64 = 0
+    private var learnMoreLockTask: Task<Void, Never>?
 
     public init(
         targetRule: AppRule,
@@ -58,6 +73,12 @@ public final class QuizFlowViewModel {
     // MARK: - Flow Controls
 
     public func startQuiz() {
+        learnMoreLockTask?.cancel()
+        learnMoreLockTask = nil
+        learningResource = nil
+        learnMoreRequired = false
+        learnMoreLockSecondsRemaining = 0
+
         let bank = AdaptiveQuizEngine.loadBuiltinQuizBank()
         let skills = localStore.getTopicSkills()
         let recentIds = localStore.getRecentQuestionIds()
@@ -124,20 +145,37 @@ public final class QuizFlowViewModel {
         self.feedback = resultFeedback
         if resultFeedback.correct {
             correctCount += 1
-        }
-
-        if policy.showExplanations || !resultFeedback.correct {
-            step = .explanation
+            clearLearnMoreLock()
+            if policy.showExplanations {
+                step = .explanation
+            } else {
+                advanceToNext()
+            }
         } else {
-            advanceToNext()
+            // Wrong answer: auto-open Learn More with a sticky teaching pause.
+            learningResource = StaticLearningResourceCatalog.getFor(
+                conceptId: question.conceptId,
+                topic: question.topic,
+                conceptTitle: question.conceptTitle
+            )
+            learnMoreRequired = true
+            learnMoreLockSecondsRemaining = AppConfig.quizLockoutSeconds
+            step = .explanation
+            startLearnMoreLock()
         }
     }
 
     public func advanceToNext() {
+        if learnMoreRequired && learnMoreLockSecondsRemaining > 0 {
+            return
+        }
+        clearLearnMoreLock()
+
         if currentQuestionIndex + 1 < questions.count {
             currentQuestionIndex += 1
             selectedChoiceId = nil
             feedback = nil
+            learningResource = nil
             step = .question
             questionStartTimeMs = Int64(Date().timeIntervalSince1970 * 1000)
         } else {
@@ -145,7 +183,32 @@ public final class QuizFlowViewModel {
         }
     }
 
+    private func startLearnMoreLock() {
+        learnMoreLockTask?.cancel()
+        let total = AppConfig.quizLockoutSeconds
+        learnMoreLockTask = Task { [weak self] in
+            guard let self else { return }
+            var remaining = total
+            while remaining > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if Task.isCancelled { return }
+                remaining -= 1
+                await MainActor.run {
+                    self.learnMoreLockSecondsRemaining = remaining
+                }
+            }
+        }
+    }
+
+    private func clearLearnMoreLock() {
+        learnMoreLockTask?.cancel()
+        learnMoreLockTask = nil
+        learnMoreRequired = false
+        learnMoreLockSecondsRemaining = 0
+    }
+
     private func finishQuiz() {
+        clearLearnMoreLock()
         let result = AdaptiveQuizEngine.finalize(
             correctCount: correctCount,
             total: totalQuestions,
