@@ -8,6 +8,7 @@ description = "PIN hash, OS secret store, LogSanitizer, Appearance prefs"
 rust-version.workspace = true
 
 [dependencies]
+base64 = { workspace = true }
 meritscreen-core = { workspace = true }
 directories = { workspace = true }
 hex = { workspace = true }

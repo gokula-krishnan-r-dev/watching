@@ -2245,6 +2245,7 @@ dependencies = [
 name = "meritscreen-security"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "directories",
  "hex",
  "keyring",
