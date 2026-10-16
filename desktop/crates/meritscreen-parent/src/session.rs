@@ -748,6 +748,11 @@ impl ParentSession {
 
     pub async fn create_pairing(&self, child_id: &str) -> Result<PairingOffer, AppError> {
         self.require_signed_in()?;
+        if self.inner.lock().pin_hash.as_ref().map(|h| h.is_empty()).unwrap_or(true) {
+            return Err(AppError::validation(
+                "Set a parent PIN first (Account → Parent PIN). Children need it to unlock settings.",
+            ));
+        }
         {
             let g = self.inner.lock();
             if !g.children.contains_key(child_id) {

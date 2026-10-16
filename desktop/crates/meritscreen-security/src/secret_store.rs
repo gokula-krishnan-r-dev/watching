@@ -164,6 +164,7 @@ fn sanitize_account(account: &str) -> String {
 pub mod accounts {
     pub const DB_KEY: &str = "db_key";
     pub const CHILD_REFRESH: &str = "child_refresh_token";
+    pub const CHILD_DEVICE_ID: &str = "child_device_id";
     pub const CHILD_ID_TOKEN: &str = "child_id_token";
     pub const PARENT_REFRESH: &str = "parent_refresh_token";
     pub const PARENT_PIN_HASH: &str = "parent_pin_hash";

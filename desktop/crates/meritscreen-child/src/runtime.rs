@@ -313,11 +313,36 @@ impl ChildRuntime {
         self.inner.lock().paired
     }
 
+    /// Permanent per-install device id (alnum, 32 chars) used for `consumePairingToken`.
+    /// Survives unpair so a re-pair resumes the same Firestore device doc.
+    pub fn device_id(&self) -> String {
+        let store = self.secret_store();
+        if let Ok(existing) = store.get(accounts::CHILD_DEVICE_ID) {
+            let existing = existing.to_string();
+            if existing.len() >= 8 && existing.chars().all(|c| c.is_ascii_alphanumeric()) {
+                return existing;
+            }
+        }
+        let id = format!("desk{}", Uuid::new_v4().simple());
+        let _ = store.set(accounts::CHILD_DEVICE_ID, &id);
+        id
+    }
+
     /// Real pairing: bind credentials returned by `consumePairingToken`.
     /// Uses the parent's PIN hash from the family doc (no hardcoded PIN).
     pub fn bind_credential(&self, cred: &PairingCredential) -> Result<(), AppError> {
         if cred.child_id.trim().is_empty() || cred.family_id.trim().is_empty() {
             return Err(AppError::validation("Pairing response was incomplete. Try a new code."));
+        }
+        if cred
+            .parent_pin_hash
+            .as_ref()
+            .map(|h| h.trim().is_empty())
+            .unwrap_or(true)
+        {
+            return Err(AppError::validation(
+                "Your parent hasn’t set a parent PIN yet. Ask them to set one in Watching (Account → Parent PIN), then enter the same code again.",
+            ));
         }
         let store = self.secret_store();
         if !cred.refresh_token.is_empty() {
@@ -1052,6 +1077,20 @@ mod tests {
         assert_eq!(rt.ui_state().child_name, "Asha");
         let bad = crate::models::PairingCredential::default();
         assert!(rt.bind_credential(&bad).is_err());
+        let mut no_pin = cred.clone();
+        no_pin.parent_pin_hash = None;
+        let rt2 = super::ChildRuntime::with_secrets_dir(tempfile::tempdir().unwrap().path());
+        assert!(rt2.bind_credential(&no_pin).is_err());
+        assert!(!rt2.is_paired());
+    }
+
+    #[test]
+    fn device_id_is_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = super::ChildRuntime::with_secrets_dir(dir.path()).device_id();
+        let b = super::ChildRuntime::with_secrets_dir(dir.path()).device_id();
+        assert_eq!(a, b);
+        assert!(a.len() >= 8);
     }
 
     use super::*;

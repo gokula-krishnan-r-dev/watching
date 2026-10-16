@@ -536,7 +536,7 @@ async fn child_pair(
 
     if state.parent.is_live() {
         // Production: consumePairingToken → custom token → bind credentials.
-        let device_id = uuid_like_device_id();
+        let device_id = state.child.device_id();
         let remote = state
             .parent
             .consume_pairing_remote(&clean_code, platform, &device_id)
@@ -605,24 +605,6 @@ async fn child_pair(
     watchdog::spawn_supervisor_if_needed();
 
     Ok(ui_state)
-}
-
-/// Stable-enough device id for `consumePairingToken` (alnum, ≥ 8 chars).
-fn uuid_like_device_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let host = std::env::var("HOSTNAME")
-        .or_else(|_| std::env::var("COMPUTERNAME"))
-        .unwrap_or_default();
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in host.bytes().chain(nanos.to_le_bytes()) {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    format!("desk{:016x}{:08x}", h, std::process::id())
 }
 
 /// Hand credentials to Guardian (best effort — Guardian may not be installed in dev).
