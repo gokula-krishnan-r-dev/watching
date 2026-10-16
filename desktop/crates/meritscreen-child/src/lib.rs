@@ -8,7 +8,7 @@ pub mod models;
 pub mod runtime;
 
 pub use models::{
-    ChecklistItem, ChildScreen, ChildUiState, LauncherApp, QuizChoiceDto, QuizLockDto,
+    ChecklistItem, ChildScreen, ChildUiState, LauncherApp, PairingCredential, QuizChoiceDto, QuizLockDto,
     QuizPromptDto,
 };
 pub use runtime::ChildRuntime;

@@ -19,4 +19,4 @@ pub use oauth::{
     apple_sign_in_available, apple_sign_in_stub, generate_pkce, google_auth_url,
     google_sign_in_stub, PkceChallenge,
 };
-pub use session::ParentSession;
+pub use session::{dev_shortcuts_enabled, ParentSession, RemotePairing};

@@ -186,3 +186,19 @@ pub fn snapshot_metrics(
     (rem_block, rem_seconds, cooldown, daily_rem, ceiling_hit)
 }
 
+
+/// Credentials from `consumePairingToken` (resolved by the UI host via
+/// `meritscreen-parent`; this crate stays Firebase-free).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairingCredential {
+    pub family_id: String,
+    pub child_id: String,
+    pub device_id: String,
+    pub display_name: String,
+    pub age_band: String,
+    pub parent_pin_hash: Option<String>,
+    /// Never logged or serialized to the WebView.
+    #[serde(skip_serializing)]
+    pub refresh_token: String,
+}

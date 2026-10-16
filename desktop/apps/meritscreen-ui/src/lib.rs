@@ -100,6 +100,10 @@ struct BootstrapDto {
     parent_signed_in: bool,
     apple_sign_in_available: bool,
     child_paired: bool,
+    /// Dev-only helpers (demo codes, quick-demo buttons) may be shown.
+    dev_shortcuts: bool,
+    /// Live Firebase backend configured.
+    live_backend: bool,
 }
 
 // Tauri 2 IPC: each non-injected command parameter is a top-level invoke key
@@ -157,6 +161,8 @@ fn get_bootstrap(state: State<'_, AppState>) -> BootstrapDto {
         parent_signed_in: state.parent.is_signed_in(),
         apple_sign_in_available: meritscreen_parent::apple_sign_in_available(),
         child_paired,
+        dev_shortcuts: meritscreen_parent::dev_shortcuts_enabled(),
+        live_backend: state.parent.is_live(),
     }
 }
 
@@ -477,7 +483,7 @@ fn child_ui_state(state: State<'_, AppState>) -> ChildUiState {
 }
 
 #[tauri::command]
-fn child_pair(
+async fn child_pair(
     code: String,
     child_name: Option<String>,
     app: tauri::AppHandle,
@@ -485,6 +491,9 @@ fn child_pair(
 ) -> Result<ChildUiState, String> {
     let platform = meritscreen_core::DevicePlatform::current().as_str();
     let clean_code = code.trim().replace([' ', '-'], "");
+    if clean_code.len() != 6 || !clean_code.chars().all(|c| c.is_ascii_digit()) {
+        return Err("Enter the 6-digit pairing code.".into());
+    }
 
     // Clear any previous authorized exit flag from unpair so watchdog supervisor can start fresh
     watchdog::clear_authorized_exit_flag();
@@ -494,26 +503,52 @@ fn child_pair(
         .map(|s| !s.trim().is_empty())
         .unwrap_or(false);
 
-    // If no explicit name provided, resolve name by consuming pairing code in ParentSession
-    let resolved_name = child_name
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            state
-                .parent
-                .consume_pairing(&clean_code, platform)
-                .ok()
-                .and_then(|child_id| state.parent.child_detail(&child_id).ok().map(|d| d.card.display_name))
-        });
-
-    state
-        .child
-        .pair(&clean_code, resolved_name.as_deref())
-        .map_err(|e| e.user_message().to_string())?;
+    if state.parent.is_live() {
+        // Production: consumePairingToken → custom token → bind credentials.
+        let device_id = uuid_like_device_id();
+        let remote = state
+            .parent
+            .consume_pairing_remote(&clean_code, platform, &device_id)
+            .await
+            .map_err(|e| e.user_message().to_string())?;
+        let cred = meritscreen_child::PairingCredential {
+            family_id: remote.family_id.clone(),
+            child_id: remote.child_id.clone(),
+            device_id: if remote.device_id.is_empty() { device_id } else { remote.device_id.clone() },
+            display_name: remote.display_name.clone(),
+            age_band: remote.age_band.clone(),
+            parent_pin_hash: remote.parent_pin_hash.clone(),
+            refresh_token: remote.refresh_token.clone(),
+        };
+        state
+            .child
+            .bind_credential(&cred)
+            .map_err(|e| e.user_message().to_string())?;
+        bind_guardian_pairing(&cred, platform);
+    } else if meritscreen_parent::dev_shortcuts_enabled() {
+        // Dev/demo only: local pairing (any 6 digits; demo PIN 1234).
+        let resolved_name = child_name
+            .clone()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                state
+                    .parent
+                    .consume_pairing(&clean_code, platform)
+                    .ok()
+                    .and_then(|child_id| state.parent.child_detail(&child_id).ok().map(|d| d.card.display_name))
+            });
+        state
+            .child
+            .pair(&clean_code, resolved_name.as_deref())
+            .map_err(|e| e.user_message().to_string())?;
+    } else {
+        return Err("Pairing service is not configured. Reinstall Watching or contact support.".into());
+    }
     *state.role.lock().expect("role lock") = DeviceRole::Child;
 
     // If explicit name was passed, synchronize consumption to parent session
-    if has_explicit_name {
+    if has_explicit_name && !state.parent.is_live() {
         let _ = state.parent.consume_pairing(&clean_code, platform);
     }
 
@@ -539,6 +574,43 @@ fn child_pair(
     watchdog::spawn_supervisor_if_needed();
 
     Ok(ui_state)
+}
+
+/// Stable-enough device id for `consumePairingToken` (alnum, ≥ 8 chars).
+fn uuid_like_device_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let host = std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("COMPUTERNAME"))
+        .unwrap_or_default();
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in host.bytes().chain(nanos.to_le_bytes()) {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("desk{:016x}{:08x}", h, std::process::id())
+}
+
+/// Hand credentials to Guardian (best effort — Guardian may not be installed in dev).
+fn bind_guardian_pairing(cred: &meritscreen_child::PairingCredential, platform: &str) {
+    let req = meritscreen_ipc::IpcRequest::BindPairing {
+        family_id: cred.family_id.clone(),
+        child_id: cred.child_id.clone(),
+        device_id: cred.device_id.clone(),
+        platform: platform.to_string(),
+        refresh_token: cred.refresh_token.clone(),
+    };
+    std::thread::spawn(move || match meritscreen_ipc::IpcConn::connect() {
+        Ok(mut conn) => match conn.call(&req) {
+            Ok(meritscreen_ipc::IpcResponse::Ok) => tracing::info!("guardian pairing bound"),
+            Ok(other) => tracing::warn!(?other, "guardian rejected pairing bind"),
+            Err(e) => tracing::warn!(error = %e, "guardian pairing bind failed"),
+        },
+        Err(e) => tracing::warn!(error = %e, "guardian not reachable; pairing kept locally"),
+    });
 }
 
 #[tauri::command]

@@ -35,6 +35,16 @@ pub const TESTER_PARENT_EMAILS: &[&str] = &[
     "tester5.parent@anajyo.com",
 ];
 
+/// Dev-only shortcuts (fixed OTP codes, tester fallbacks, demo pairing).
+/// Enabled in debug builds, or explicitly with `MERITSCREEN_DEV_SHORTCUTS=1`.
+/// Release builds never accept fixed codes unless that flag is set by an operator.
+pub fn dev_shortcuts_enabled() -> bool {
+    cfg!(debug_assertions)
+        || std::env::var("MERITSCREEN_DEV_SHORTCUTS")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
+            .unwrap_or(false)
+}
+
 pub fn is_tester_parent_email(email: &str) -> bool {
     let lower = email.trim().to_ascii_lowercase();
     TESTER_PARENT_EMAILS.iter().any(|&e| e == lower)
@@ -378,6 +388,39 @@ impl ParentSession {
         }
     }
 
+    /// True when Firebase callables/auth are configured (not local demo).
+    pub fn is_live(&self) -> bool {
+        self.callables.is_some() && self.auth.is_some()
+    }
+
+    /// Child-device pairing via `consumePairingToken` (same callable Android uses).
+    /// Returns credentials; never logs the code.
+    pub async fn consume_pairing_remote(
+        &self,
+        code: &str,
+        platform: &str,
+        device_id: &str,
+    ) -> Result<RemotePairing, AppError> {
+        let clean = code.trim().replace([' ', '-'], "");
+        if clean.len() != PAIRING_CODE_LENGTH as usize || !clean.chars().all(|c| c.is_ascii_digit()) {
+            return Err(AppError::validation("Enter the 6-digit pairing code."));
+        }
+        let (Some(callables), Some(auth)) = (&self.callables, &self.auth) else {
+            return Err(AppError::validation(
+                "Pairing service is not configured on this computer.",
+            ));
+        };
+        let result = callables
+            .invoke(
+                "consumePairingToken",
+                json!({ "code": clean, "deviceId": device_id, "platform": platform }),
+                None,
+            )
+            .await
+            .map_err(|e| e.to_app_error())?;
+        parse_remote_pairing(&result, auth.as_ref()).await
+    }
+
     pub fn is_signed_in(&self) -> bool {
         self.inner.lock().profile.is_some()
     }
@@ -410,7 +453,7 @@ impl ParentSession {
             {
                 Ok(_) => return Ok(()),
                 Err(e) => {
-                    if is_tester_parent_email(&email) {
+                    if dev_shortcuts_enabled() && is_tester_parent_email(&email) {
                         tracing::warn!(
                             "sendEmailOtp remote failed ({e:?}), allowing tester email locally"
                         );
@@ -475,7 +518,7 @@ impl ParentSession {
                 }
                 Err(e) => {
                     // If remote call failed but it's a known tester account with valid tester code:
-                    if is_tester_parent_email(&email) && code == "123456" {
+                    if dev_shortcuts_enabled() && is_tester_parent_email(&email) && code == "123456" {
                         tracing::warn!(
                             "verifyEmailOtp remote failed ({e:?}), using local tester session"
                         );
@@ -504,9 +547,11 @@ impl ParentSession {
 
         let mut g = self.inner.lock();
         let expected = g.pending_otp.get(&email).cloned();
+        let dev = dev_shortcuts_enabled();
+        let fixed = dev && (code == "123456" || code == "424242");
         let is_valid = match expected.as_deref() {
-            Some(exp) => exp == code || code == "123456" || code == "424242",
-            None => code == "123456" || code == "424242" || is_tester_parent_email(&email),
+            Some(exp) => exp == code || fixed,
+            None => fixed,
         };
         if !is_valid {
             return Err(AppError::validation(
@@ -1613,5 +1658,100 @@ mod tests {
         // Pairing code can be consumed locally
         let target_child = s.consume_pairing(&offer.code, "macos").unwrap();
         assert_eq!(target_child, child.child_id);
+    }
+}
+
+/// Result of a successful `consumePairingToken` + custom-token sign-in.
+#[derive(Debug, Clone)]
+pub struct RemotePairing {
+    pub family_id: String,
+    pub child_id: String,
+    pub device_id: String,
+    pub display_name: String,
+    pub age_band: String,
+    pub parent_pin_hash: Option<String>,
+    pub refresh_token: String,
+}
+
+async fn parse_remote_pairing(
+    result: &serde_json::Value,
+    auth: &dyn AuthClient,
+) -> Result<RemotePairing, AppError> {
+    let s = |k: &str| result[k].as_str().unwrap_or("").to_string();
+    let custom = s("customToken");
+    if custom.is_empty() || s("familyId").is_empty() || s("childId").is_empty() {
+        return Err(AppError::auth_msg("Pairing response was incomplete. Ask for a new code."));
+    }
+    let tokens = auth
+        .sign_in_with_custom_token(&custom)
+        .await
+        .map_err(|e| e.to_app_error())?;
+    let pin = s("parentPinHash");
+    Ok(RemotePairing {
+        family_id: s("familyId"),
+        child_id: s("childId"),
+        device_id: s("deviceId"),
+        display_name: s("displayName"),
+        age_band: s("ageBand"),
+        parent_pin_hash: if pin.is_empty() { None } else { Some(pin) },
+        refresh_token: tokens.refresh_token,
+    })
+}
+
+#[cfg(test)]
+mod remote_pairing_tests {
+    use super::*;
+    use async_trait::async_trait;
+    use meritscreen_firebase::mock::MockAuthClient;
+    use meritscreen_firebase::FirebaseResult;
+
+    struct PairingCallable(serde_json::Value);
+
+    #[async_trait]
+    impl CallableClient for PairingCallable {
+        async fn invoke(
+            &self,
+            name: &str,
+            data: serde_json::Value,
+            _t: Option<&str>,
+        ) -> FirebaseResult<serde_json::Value> {
+            assert_eq!(name, "consumePairingToken");
+            assert_eq!(data["platform"], "macos");
+            assert_eq!(data["code"], "123456");
+            Ok(self.0.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn consume_pairing_remote_returns_credentials() {
+        let s = ParentSession::with_backends(
+            Arc::new(PairingCallable(json!({
+                "customToken": "ct", "familyId": "f1", "childId": "c1", "deviceId": "d1",
+                "parentPinHash": "pbkdf2$1$a$b", "displayName": "Asha", "ageBand": "AGE_7_TO_9"
+            }))),
+            Arc::new(MockAuthClient::default()),
+        );
+        assert!(s.is_live());
+        let r = s.consume_pairing_remote("123 456", "macos", "devabcdef").await.unwrap();
+        assert_eq!(r.child_id, "c1");
+        assert_eq!(r.refresh_token, "refresh-ct");
+        assert_eq!(r.parent_pin_hash.as_deref(), Some("pbkdf2$1$a$b"));
+        assert!(s.consume_pairing_remote("12", "macos", "devabcdef").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn consume_pairing_remote_rejects_incomplete_response() {
+        let s = ParentSession::with_backends(
+            Arc::new(PairingCallable(json!({ "ok": true }))),
+            Arc::new(MockAuthClient::default()),
+        );
+        assert!(s.consume_pairing_remote("123456", "macos", "devabcdef").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn demo_session_is_not_live() {
+        let s = ParentSession::demo();
+        assert!(!s.is_live());
+        assert!(s.consume_pairing_remote("123456", "macos", "devabcdef").await.is_err());
     }
 }

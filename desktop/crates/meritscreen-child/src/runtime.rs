@@ -18,6 +18,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::models::{
+    PairingCredential,
     default_checklist, snapshot_metrics, ChecklistItem, ChildScreen, ChildUiState, LauncherApp,
     QuizChoiceDto, QuizLockDto, QuizPromptDto,
 };
@@ -312,6 +313,47 @@ impl ChildRuntime {
         self.inner.lock().paired
     }
 
+    /// Real pairing: bind credentials returned by `consumePairingToken`.
+    /// Uses the parent's PIN hash from the family doc (no hardcoded PIN).
+    pub fn bind_credential(&self, cred: &PairingCredential) -> Result<(), AppError> {
+        if cred.child_id.trim().is_empty() || cred.family_id.trim().is_empty() {
+            return Err(AppError::validation("Pairing response was incomplete. Try a new code."));
+        }
+        let store = self.secret_store();
+        if !cred.refresh_token.is_empty() {
+            store
+                .set(accounts::CHILD_REFRESH, &cred.refresh_token)
+                .map_err(|_| AppError::unknown())?;
+        }
+        let mut g = self.inner.lock();
+        g.paired = true;
+        g.child_id = Some(cred.child_id.clone());
+        g.child_name = if cred.display_name.trim().is_empty() {
+            "Friend".to_string()
+        } else {
+            cred.display_name.trim().to_string()
+        };
+        if let Some(band) = AgeBand::parse(&cred.age_band) {
+            g.age_band = band;
+        }
+        g.pin_hash = cred
+            .parent_pin_hash
+            .as_ref()
+            .filter(|h| !h.trim().is_empty())
+            .cloned();
+        g.checklist_complete = true;
+        g.checklist = default_checklist();
+        for item in &mut g.checklist {
+            item.done = true;
+        }
+        g.screen_override = Some(ChildScreen::Launcher);
+        g.session =
+            SessionEngine::start_device_interval(g.session.clone(), g.elapsed_ms, &g.policy);
+        g.quiz = None;
+        self.save_persisted(&g);
+        Ok(())
+    }
+
     /// C01 — demo pairing: 6-digit code → local credential in secret store → Child role.
     pub fn pair(&self, code: &str, child_name: Option<&str>) -> Result<(), AppError> {
         let code = code.trim().replace(' ', "");
@@ -335,7 +377,7 @@ impl ChildRuntime {
             .filter(|s| !s.is_empty())
             .unwrap_or("Friend")
             .to_string();
-        // Demo parent PIN for C14 — production syncs hash from family doc.
+        // Dev-only demo pairing: demo PIN 1234 (real pairing uses `bind_credential`).
         g.pin_hash = Some(hash_parent_pin("1234"));
         g.checklist_complete = true;
         g.checklist = default_checklist();
@@ -990,6 +1032,28 @@ fn demo_rules() -> Vec<AppRule> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bind_credential_uses_parent_pin_not_demo() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = super::ChildRuntime::with_secrets_dir(dir.path());
+        let cred = crate::models::PairingCredential {
+            family_id: "fam1".into(),
+            child_id: "kid1".into(),
+            device_id: "dev12345".into(),
+            display_name: "Asha".into(),
+            age_band: "AGE_7_TO_9".into(),
+            parent_pin_hash: Some(meritscreen_security::hash_parent_pin("5791")),
+            refresh_token: "rt".into(),
+        };
+        rt.bind_credential(&cred).unwrap();
+        assert!(rt.is_paired());
+        assert!(rt.verify_pin("5791").unwrap());
+        assert!(!rt.verify_pin("1234").unwrap());
+        assert_eq!(rt.ui_state().child_name, "Asha");
+        let bad = crate::models::PairingCredential::default();
+        assert!(rt.bind_credential(&bad).is_err());
+    }
+
     use super::*;
     use tempfile::tempdir;
 
