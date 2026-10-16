@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod analytics;
 pub mod models;
 pub mod oauth;
 pub mod remote;

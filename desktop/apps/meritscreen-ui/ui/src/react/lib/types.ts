@@ -155,3 +155,27 @@ export interface ChildUiState {
   activeAppId?: string | null;
   activeAppName?: string | null;
 }
+
+/* ── Dashboard analytics (parent_family_insights) ── */
+export interface DayPoint { day: string; minutes: number }
+export interface AppShare { appId: string; label: string; minutes: number; percent: number }
+export interface RecentAttempt { atMs: number; passed: boolean; score: number; total: number; topic: string }
+export interface QuizSummary {
+  attemptsWeek: number; passesWeek: number; passRatePercent: number | null;
+  attemptsToday: number; passesToday: number; minutesEarnedWeek: number;
+  passStreakDays: number; lastAttemptAtMs: number | null; recent: RecentAttempt[];
+}
+export interface SkillLine { topic: string; label: string; level: number; tier: string; concepts: string[] }
+export interface StickerLine { emoji: string; title: string; unlockedAtMs: number }
+export interface DeviceLine { deviceId: string; platform: string; model: string | null; lastSeenAtMs: number | null; online: boolean; batteryPercent: number | null; appVersion: string | null }
+export interface InsightAlert { severity: "info" | "warning" | "critical"; kind: string; message: string }
+export interface ChildInsights {
+  childId: string; displayName: string; ageBand: string; paused: boolean;
+  dailyLimitMinutes: number | null; bonusMinutesToday: number; usedTodayMinutes: number; remainingTodayMinutes: number | null;
+  weekTotalMinutes: number; dailyAverageMinutes: number; weekDeltaPercent: number | null;
+  trend: DayPoint[]; topApps: AppShare[]; quiz: QuizSummary;
+  skills: { strengths: SkillLine[]; needsPractice: SkillLine[] };
+  rewards: { xp: number; level: number; stickerCount: number; recentStickers: StickerLine[] };
+  devices: DeviceLine[]; alerts: InsightAlert[]; error: string | null;
+}
+export interface FamilyInsights { source: "cloud" | "local"; generatedAtMs: number; children: ChildInsights[] }

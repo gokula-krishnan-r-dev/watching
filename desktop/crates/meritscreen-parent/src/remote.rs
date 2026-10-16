@@ -380,6 +380,39 @@ pub fn ui_age_band(raw: &str) -> String {
     raw.trim().trim_start_matches("AGE_").to_ascii_lowercase()
 }
 
+impl ParentRemote {
+    /// Load a child's cloud telemetry the way Android's parent screens read it.
+    pub async fn load_child_telemetry(
+        &self,
+        family_id: &str,
+        child_id: &str,
+        token: &str,
+    ) -> Result<crate::analytics::ChildTelemetry, AppError> {
+        use crate::analytics::*;
+        let base = format!("families/{family_id}/children/{child_id}");
+        let get = |path: String| async move { self.firestore.get_document(&path, token).await.map_err(map_err) };
+        let usage = get(format!("{base}/{USAGE_DAYS_QUERY}")).await?;
+        let quizzes = get(format!("{base}/{QUIZ_ATTEMPTS_QUERY}")).await?;
+        let skills = get(format!("{base}/skillState/current")).await?;
+        let stickers = get(format!("{base}/stickerUnlocks")).await?;
+        let explorer = get(format!("{base}/explorerProgress/current")).await?;
+        let devices = get(format!("{base}/devices")).await?;
+        let mut usage_days: Vec<UsageDay> =
+            plain_docs(usage.as_ref()).iter().map(|(id, f)| parse_usage_day(id, f)).collect();
+        usage_days.sort_by(|a, b| b.day.cmp(&a.day));
+        usage_days.truncate(14);
+        Ok(ChildTelemetry {
+            usage_days,
+            quiz_attempts: plain_docs(quizzes.as_ref()).iter().map(|(_, f)| parse_quiz_attempt(f)).collect(),
+            quiz_today_counts: None,
+            skills: skills.as_ref().map(|d| parse_skill_state(&plain_doc(d).1)).unwrap_or_default(),
+            stickers: plain_docs(stickers.as_ref()).iter().filter_map(|(_, f)| parse_sticker(f)).collect(),
+            explorer: explorer.as_ref().map(|d| parse_explorer(&plain_doc(d).1)),
+            devices: plain_docs(devices.as_ref()).iter().map(|(id, f)| parse_device(id, f)).collect(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,5 +468,39 @@ mod tests {
             .unwrap();
         r.write_app_rules("f", "c", &[AppRule::new("mac:com/x", "com.x")], "t").await.unwrap();
         r.delete_child("f", "c", "t").await.unwrap();
+    }
+    #[tokio::test]
+    async fn load_child_telemetry_reads_android_collections() {
+        use crate::analytics::{QUIZ_ATTEMPTS_QUERY, USAGE_DAYS_QUERY};
+        let fs = Arc::new(MockFirestoreClient::default());
+        let base = "families/f/children/c";
+        {
+            let mut d = fs.docs.lock().unwrap();
+            d.insert(format!("{base}/{USAGE_DAYS_QUERY}"), json!({"documents": [
+                {"name": format!("x/{base}/usageDays/2026-10-15"), "fields": {"minutesUsed": {"integerValue": "30"}}},
+                {"name": format!("x/{base}/usageDays/2026-10-16"), "fields": {"minutesUsed": {"integerValue": "45"},
+                    "minutesByApp": {"mapValue": {"fields": {"com.mojang": {"integerValue": "45"}}}}}}]}));
+            d.insert(format!("{base}/{QUIZ_ATTEMPTS_QUERY}"), json!({"documents": [
+                {"name": "x/q1", "fields": {"createdAt": {"timestampValue": "2026-10-16T09:00:00Z"}, "passed": {"booleanValue": true},
+                    "score": {"integerValue": "3"}, "total": {"integerValue": "3"}, "topics": {"arrayValue": {"values": [{"stringValue": "addition"}]}}}}]}));
+            d.insert(format!("{base}/skillState/current"), json!({"name": "x/current", "fields": {"topics": {"mapValue": {"fields": {
+                "fractions": {"mapValue": {"fields": {"level": {"integerValue": "1"}, "weak": {"booleanValue": true}}}}}}}}}));
+            d.insert(format!("{base}/stickerUnlocks"), json!({"documents": [{"name": "x/s1", "fields": {"stickerId": {"stringValue": "fox"}, "emoji": {"stringValue": "🦊"}}}]}));
+            d.insert(format!("{base}/explorerProgress/current"), json!({"name": "x/current", "fields": {"xp": {"integerValue": "90"}, "passStreakDays": {"integerValue": "2"}}}));
+            d.insert(format!("{base}/devices"), json!({"documents": [{"name": "x/dev1", "fields": {"platform": {"stringValue": "android"}, "batteryPercent": {"integerValue": "80"}}}]}));
+        }
+        let r = ParentRemote::new(fs, Arc::new(MockCallableClient::default()), "p");
+        let t = r.load_child_telemetry("f", "c", "t").await.unwrap();
+        assert_eq!(t.usage_days[0].day, "2026-10-16");
+        assert_eq!(t.usage_days[0].minutes_by_app["com.mojang"], 45);
+        assert_eq!(t.quiz_attempts.len(), 1);
+        assert!(t.quiz_attempts[0].passed && t.quiz_attempts[0].created_at_ms > 0);
+        assert!(t.skills[0].weak);
+        assert_eq!(t.stickers[0].emoji, "🦊");
+        assert_eq!(t.explorer.as_ref().unwrap().pass_streak_days, 2);
+        assert_eq!(t.devices[0].device_id, "dev1");
+        // Missing collections are simply empty.
+        let empty = r.load_child_telemetry("f", "none", "t").await.unwrap();
+        assert!(empty.usage_days.is_empty() && empty.explorer.is_none());
     }
 }

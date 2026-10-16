@@ -11,9 +11,24 @@ const rules = [
 ];
 const detail: ChildDetail = { card, policy, appRules: rules, failLockScope: "all", enforcement: null };
 
+const insightChild = {
+  childId: "c1", displayName: "Mia", ageBand: "7_to_9", paused: false, dailyLimitMinutes: 120, bonusMinutesToday: 15,
+  usedTodayMinutes: 30, remainingTodayMinutes: 105, weekTotalMinutes: 300, dailyAverageMinutes: 50, weekDeltaPercent: -12,
+  trend: ["2026-10-10", "2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"].map((day, i) => ({ day, minutes: i * 10 })),
+  topApps: [{ appId: "a", label: "Alpha", minutes: 120, percent: 60 }],
+  quiz: { attemptsWeek: 5, passesWeek: 4, passRatePercent: 80, attemptsToday: 1, passesToday: 1, minutesEarnedWeek: 40, passStreakDays: 3, lastAttemptAtMs: Date.now() - 60_000, recent: [{ atMs: Date.now() - 60_000, passed: true, score: 3, total: 3, topic: "Fractions" }] },
+  skills: { strengths: [{ topic: "addition", label: "Addition", level: 4, tier: "basic", concepts: [] }], needsPractice: [{ topic: "fractions", label: "Fractions", level: 1, tier: "basic", concepts: ["Halves"] }] },
+  rewards: { xp: 120, level: 3, stickerCount: 2, recentStickers: [{ emoji: "🦊", title: "Fox", unlockedAtMs: 1 }] },
+  devices: [{ deviceId: "d1", platform: "android", model: "Pixel 7", lastSeenAtMs: Date.now(), online: true, batteryPercent: 12, appVersion: "1.0" }],
+  alerts: [{ severity: "warning", kind: "battery_low", message: "Mia’s device battery is at 12%." }],
+  error: null,
+};
+const insights = { source: "cloud", generatedAtMs: Date.now(), children: [insightChild] };
+
 function impl(cmd: string) {
   if (cmd === "parent_dashboard" || cmd === "parent_refresh") return { state: "success", data: { profile: { uid: "u", email: "p@x.com", familyId: "f" }, children: [card], maxChildren: 5 }, error: null };
   if (cmd === "parent_child_detail") return detail;
+  if (cmd === "parent_family_insights") return insights;
   return undefined;
 }
 
@@ -24,6 +39,30 @@ describe("parent screens", () => {
     expect(await screen.findByText("Mia")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Pause Mia" }));
     await waitFor(() => expect(b.invoke).toHaveBeenCalledWith("parent_update_policy", expect.objectContaining({ policy: expect.objectContaining({ paused: true }) })));
+  });
+
+  it("dashboard shows analytics, alerts and grants a bonus", async () => {
+    const b = mockBridge({}, impl);
+    render(<DashboardScreen bridge={b} />);
+    expect(await screen.findByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByText("Mia’s device battery is at 12%.")).toBeInTheDocument();
+    expect(screen.getByText("80%")).toBeInTheDocument();
+    expect(screen.getByText(/Fox/)).toBeInTheDocument();
+    expect(screen.getByText("Pixel 7")).toBeInTheDocument();
+    expect(screen.getByText(/12% vs last week/)).toBeInTheDocument();
+    expect(screen.getByText(/Synced from your family/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Give Mia 15 bonus minutes today" }));
+    await waitFor(() => expect(b.invoke).toHaveBeenCalledWith("parent_grant_bonus", { childId: "c1", minutes: 15 }));
+  });
+
+  it("dashboard keeps child cards when analytics fail", async () => {
+    const b = mockBridge({}, (c) => {
+      if (c === "parent_family_insights") throw "offline";
+      return impl(c);
+    });
+    render(<DashboardScreen bridge={b} />);
+    expect(await screen.findByText(/Couldn’t load activity/)).toBeInTheDocument();
+    expect(screen.getByText("Mia", { selector: "span" })).toBeInTheDocument();
   });
 
   it("dashboard empty state", async () => {

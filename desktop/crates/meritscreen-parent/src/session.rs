@@ -1170,6 +1170,66 @@ impl ParentSession {
         self.persist_session();
     }
 
+    /// Dashboard analytics for every child. Reads Firestore (usageDays, quizAttempts,
+    /// skillState, stickerUnlocks, explorerProgress, devices) when signed in to a real
+    /// family; otherwise — or per child on failure — falls back to this computer's data.
+    pub async fn family_insights(&self) -> Result<crate::analytics::FamilyInsights, AppError> {
+        use crate::analytics::*;
+        if self.profile().is_none() {
+            return Err(AppError::auth_msg("Sign in to manage your family."));
+        }
+        let mut records: Vec<ChildRecord> = self.inner.lock().children.values().cloned().collect();
+        records.sort_by(|a, b| a.card.display_name.to_lowercase().cmp(&b.card.display_name.to_lowercase()));
+        let ctx = self.remote_ctx().await.ok().flatten();
+        let family_id = ctx.as_ref().and_then(|c| c.family_id.clone());
+        let today = chrono::Local::now().date_naive();
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let mut children = Vec::with_capacity(records.len());
+        let mut any_cloud = false;
+        for rec in &records {
+            let local = local_telemetry(rec);
+            let (telemetry, error) = match (&ctx, &family_id) {
+                (Some(c), Some(f)) => match c.remote.load_child_telemetry(f, &rec.card.child_id, &c.token).await {
+                    Ok(mut t) => {
+                        any_cloud = true;
+                        t.quiz_today_counts = local.quiz_today_counts;
+                        (t, None)
+                    }
+                    Err(e) => (local, Some(e.user_message().to_string())),
+                },
+                _ => (local, None),
+            };
+            let mut rules = rec.app_rules.clone();
+            for (id, label) in &rec.app_labels {
+                let mut r = AppRule::new(id.clone(), id.clone());
+                r.display_name = label.clone();
+                rules.push(r);
+            }
+            let cctx = ChildContext {
+                child_id: &rec.card.child_id,
+                display_name: &rec.card.display_name,
+                age_band: &rec.card.age_band,
+                policy: &rec.policy,
+                rules: &rules,
+                paired_device_count: rec.card.paired_device_count,
+                local_minutes_today: rec.card.minutes_used_today,
+            };
+            let mut ins = summarize(&cctx, &telemetry, today, now_ms);
+            if let Some(enf) = &rec.enforcement {
+                for flag in &enf.tamper_flags {
+                    ins.alerts.insert(0, Alert {
+                        severity: "critical".into(),
+                        kind: "tamper".into(),
+                        message: format!("{}: protection issue detected ({}).", rec.card.display_name, flag.replace('_', " ")),
+                    });
+                }
+            }
+            ins.error = error;
+            children.push(ins);
+        }
+        Ok(FamilyInsights { source: if any_cloud { "cloud".into() } else { "local".into() }, generated_at_ms: now_ms, children })
+    }
+
     pub fn child_reports(&self, child_id: &str) -> Result<ChildReportsSnapshot, AppError> {
         let g = self.inner.lock();
         let child = g
@@ -2096,5 +2156,47 @@ mod remote_pairing_tests {
         let s = ParentSession::demo();
         assert!(!s.is_live());
         assert!(s.consume_pairing_remote("123456", "macos", "devabcdef").await.is_err());
+    }
+    #[tokio::test]
+    async fn family_insights_falls_back_to_local_data() {
+        let s = ParentSession::demo();
+        let n = s.inner.lock().children.len();
+        if s.profile().is_none() {
+            assert!(s.family_insights().await.is_err());
+            return;
+        }
+        let fi = s.family_insights().await.unwrap();
+        assert_eq!(fi.source, "local");
+        assert_eq!(fi.children.len(), n);
+        for c in &fi.children {
+            assert_eq!(c.trend.len(), 7);
+            assert!(c.error.is_none());
+        }
+    }
+}
+
+/// Telemetry known on this computer (used offline / for dev sessions).
+fn local_telemetry(rec: &ChildRecord) -> crate::analytics::ChildTelemetry {
+    use crate::analytics::{ChildTelemetry, UsageDay};
+    let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+    let mut days: Vec<UsageDay> = rec
+        .daily_total_history
+        .iter()
+        .filter(|(d, _)| **d != today)
+        .map(|(d, m)| UsageDay {
+            day: d.clone(),
+            minutes_used: *m,
+            minutes_by_app: rec.daily_usage_history.get(d).map(|h| h.iter().map(|(k, v)| (k.clone(), *v)).collect()).unwrap_or_default(),
+        })
+        .collect();
+    days.push(UsageDay {
+        day: today,
+        minutes_used: rec.card.minutes_used_today,
+        minutes_by_app: rec.minutes_by_app.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+    });
+    ChildTelemetry {
+        usage_days: days,
+        quiz_today_counts: (rec.quiz_attempts_today > 0).then_some((rec.quiz_attempts_today, rec.quiz_passes_today)),
+        ..Default::default()
     }
 }

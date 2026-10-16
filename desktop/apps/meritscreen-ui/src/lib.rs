@@ -941,11 +941,8 @@ fn exit_quiz_blocking(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-fn parent_child_reports(
-    child_id: String,
-    state: State<'_, AppState>,
-) -> Result<ChildReportsSnapshot, String> {
+/// Fold this computer's child-runtime telemetry into the parent view.
+fn merge_local_child_telemetry(state: &AppState) {
     let telem = state.child.get_report_telemetry();
     if let Some(ref cid) = telem.child_id {
         state.parent.record_child_telemetry(
@@ -961,6 +958,26 @@ fn parent_child_reports(
             telem.daily_total_history,
         );
     }
+}
+
+#[tauri::command]
+async fn parent_family_insights(
+    state: State<'_, AppState>,
+) -> Result<meritscreen_parent::analytics::FamilyInsights, String> {
+    merge_local_child_telemetry(&state);
+    state
+        .parent
+        .family_insights()
+        .await
+        .map_err(|e| e.user_message().to_string())
+}
+
+#[tauri::command]
+fn parent_child_reports(
+    child_id: String,
+    state: State<'_, AppState>,
+) -> Result<ChildReportsSnapshot, String> {
+    merge_local_child_telemetry(&state);
     state
         .parent
         .child_reports(&child_id)
@@ -1416,6 +1433,7 @@ pub fn run() {
             parent_delete_family,
             parent_sign_out,
             parent_child_reports,
+            parent_family_insights,
             child_ui_state,
             child_pair,
             child_set_checklist_item,

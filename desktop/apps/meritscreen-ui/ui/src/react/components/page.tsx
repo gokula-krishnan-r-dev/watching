@@ -19,10 +19,10 @@ export function Page({
   backLabel?: string;
   actions?: React.ReactNode;
   children: React.ReactNode;
-  width?: "md" | "lg" | "xl";
+  width?: "md" | "lg" | "xl" | "2xl";
 }) {
   return (
-    <div className={cn("mx-auto flex w-full flex-col gap-5 px-4 py-6", width === "md" ? "max-w-2xl" : width === "lg" ? "max-w-4xl" : "max-w-6xl")}>
+    <div className={cn("mx-auto flex w-full flex-col gap-5 px-4 py-6", width === "md" ? "max-w-2xl" : width === "lg" ? "max-w-4xl" : width === "xl" ? "max-w-6xl" : "max-w-7xl")}>
       {onBack && (
         <Button variant="ghost" size="sm" className="self-start" onClick={onBack}>
           <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {backLabel}
