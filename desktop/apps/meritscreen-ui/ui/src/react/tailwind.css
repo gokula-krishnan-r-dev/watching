@@ -1,0 +1,39 @@
+/* Tailwind v4 for the React/shadcn layer only.
+   No preflight (the legacy vanilla screens rely on styles.css), and sources are
+   limited to src/react so vanilla class names are never regenerated. */
+@layer theme, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@source "./";
+
+/* Design tokens mapped onto the existing --ms-* system so React and legacy
+   screens share one look (light/dark both follow styles.css). */
+@theme inline {
+  --color-background: var(--ms-bg);
+  --color-foreground: var(--ms-on-surface);
+  --color-card: var(--ms-surface-card);
+  --color-card-foreground: var(--ms-on-surface);
+  --color-muted: var(--ms-surface-low);
+  --color-muted-foreground: var(--ms-on-surface-variant);
+  --color-primary: var(--ms-primary);
+  --color-primary-foreground: var(--ms-on-primary);
+  --color-secondary: var(--ms-secondary-container);
+  --color-secondary-foreground: var(--ms-on-secondary-container);
+  --color-destructive: var(--ms-error);
+  --color-destructive-container: var(--ms-error-container);
+  --color-on-destructive-container: var(--ms-on-error-container);
+  --color-success: var(--ms-success);
+  --color-success-container: var(--ms-success-container);
+  --color-border: var(--ms-outline-subtle);
+  --color-input: var(--ms-outline);
+  --color-ring: var(--ms-primary);
+  --radius-md: var(--ms-radius);
+  --radius-lg: var(--ms-radius-lg);
+  --font-sans: var(--ms-font);
+  --font-mono: var(--ms-mono);
+}
+
+.ms-react-root *, .ms-react-root *::before, .ms-react-root *::after {
+  box-sizing: border-box;
+}
+.ms-react-root { width: 100%; }

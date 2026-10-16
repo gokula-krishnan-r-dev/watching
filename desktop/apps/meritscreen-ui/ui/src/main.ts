@@ -1,6 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { initLocale, t } from "./i18n";
+import { createElement } from "react";
+import {
+  ChildPairingScreen,
+  ChildPinMenuScreen,
+  ParentAuthScreen,
+  mountScreen,
+  unmountScreen,
+  type AppBridge,
+} from "./react";
 
 type Appearance = "system" | "light" | "dark";
 type DeviceRole = "unassigned" | "parent" | "child";
@@ -14,6 +23,9 @@ interface BootstrapDto {
   parentSignedIn: boolean;
   appleSignInAvailable: boolean;
   childPaired: boolean;
+  /** Dev builds only: demo OTP codes / quick-fill helpers. */
+  devShortcuts?: boolean;
+  liveBackend?: boolean;
 }
 
 type ChildScreen =
@@ -717,8 +729,30 @@ async function navigate(next: Route): Promise<void> {
   await render();
 }
 
+function appBridge(): AppBridge {
+  return {
+    invoke: (cmd, args) => invoke(cmd, args),
+    navigate: (r) => navigate(r as Route),
+    toast: (m, type) => showToast(m, type ?? "success"),
+    devShortcuts: bootstrap?.devShortcuts ?? false,
+    liveBackend: bootstrap?.liveBackend ?? false,
+    appleSignInAvailable: bootstrap?.appleSignInAvailable ?? false,
+  };
+}
+
+async function ensureBootstrap(): Promise<void> {
+  if (bootstrap) return;
+  try {
+    bootstrap = await invoke<BootstrapDto>("get_bootstrap");
+  } catch {
+    // Browser preview without Tauri — keep defaults.
+  }
+}
+
 async function render(): Promise<void> {
   if (!view) return;
+  // Legacy screens write innerHTML; tear down any React root first.
+  unmountScreen();
   try {
     switch (route.name) {
       case "role":
@@ -922,220 +956,20 @@ async function renderRoleGate(): Promise<void> {
 
 function renderParentAuth(step: "email" | "otp"): void {
   if (!view) return;
-  const apple = bootstrap?.appleSignInAvailable ?? false;
-  if (step === "email") {
-    view.innerHTML = `
-      <div class="auth-card">
-        <div class="auth-card-hero">
-          <div class="auth-logo-badge">🛡️</div>
-          <h1>Parent Sign In</h1>
-          <p>Sign in to configure screen time rules, approve learning apps, and review micro-quiz progress.</p>
-        </div>
-
-        <div id="auth-error-container"></div>
-
-        <label class="field">
-          <span>Parent Email</span>
-          <input id="email" type="email" autocomplete="username" placeholder="you@example.com" value="${escapeHtml(authEmail || "")}" />
-        </label>
-
-        <div class="tester-quick-chips">
-          <span style="font-size:0.75rem;color:var(--ms-on-surface-variant);font-weight:600;">Test Accounts:</span>
-          <button type="button" class="quick-chip" data-fill-email="tester4.parent@anajyo.com">tester4.parent@anajyo.com</button>
-          <button type="button" class="quick-chip" data-fill-email="tester1.parent@anajyo.com">tester1.parent@anajyo.com</button>
-        </div>
-
-        <div class="actions" style="margin-top: 6px;">
-          <button class="btn btn-primary" id="send" style="width: 100%;">
-            <span id="send-spinner" style="display:none;" class="btn-spinner"></span>
-            <span id="send-text">Send verification code →</span>
-          </button>
-          <button class="btn btn-secondary" id="google" style="width: 100%;">Continue with Google</button>
-          ${apple ? `<button class="btn btn-secondary" id="apple" style="width: 100%;">Sign in with Apple</button>` : ""}
-          <button class="btn btn-secondary" id="back" style="width: 100%;">Back to role select</button>
-        </div>
-
-        <p class="muted meta" style="text-align: center; margin-top: 4px;">
-          Local demo builds accept code <span class="mono">123456</span> or <span class="mono">424242</span>.
-        </p>
-      </div>`;
-
-    const sendBtn = document.getElementById("send") as HTMLButtonElement;
-    const sendSpinner = document.getElementById("send-spinner") as HTMLElement;
-    const sendText = document.getElementById("send-text") as HTMLElement;
-    const emailInput = document.getElementById("email") as HTMLInputElement;
-    const errContainer = document.getElementById("auth-error-container") as HTMLElement;
-
-    for (const chip of view.querySelectorAll<HTMLButtonElement>("[data-fill-email]")) {
-      chip.addEventListener("click", () => {
-        emailInput.value = chip.dataset.fillEmail || "";
-        emailInput.focus();
-      });
-    }
-
-    const setSubmitting = (submitting: boolean) => {
-      sendBtn.disabled = submitting;
-      emailInput.disabled = submitting;
-      sendSpinner.style.display = submitting ? "inline-block" : "none";
-      sendText.textContent = submitting ? "Sending code…" : "Send verification code →";
-    };
-
-    sendBtn.addEventListener("click", () => {
-      void (async () => {
-        errContainer.innerHTML = "";
-        const email = emailInput.value.trim();
-        if (!email.includes("@") || email.length < 5) {
-          errContainer.innerHTML = `
-            <div class="error-banner">
-              <div>
-                <strong>Invalid email</strong>
-                Enter a valid email address to receive your sign-in code.
-              </div>
-            </div>`;
-          return;
-        }
-        authEmail = email;
-        setSubmitting(true);
-        try {
-          await invoke("parent_send_otp", { email });
-          await navigate({ name: "parent-auth", step: "otp", email });
-        } catch (e) {
-          setSubmitting(false);
-          errContainer.innerHTML = `
-            <div class="error-banner">
-              <div>
-                <strong>Sign in failed</strong>
-                ${escapeHtml(friendlyError(e))}
-              </div>
-            </div>`;
-        }
-      })();
-    });
-
-    document.getElementById("google")?.addEventListener("click", () => {
-      void (async () => {
-        try {
-          const url = await invoke<string>("parent_google_url");
-          renderError(`Open this Google URL in a browser (loopback PKCE):\n${url}`, () =>
-            void navigate({ name: "parent-auth", step: "email" }),
-          );
-        } catch (e) {
-          renderError(String(e), () => void navigate({ name: "parent-auth", step: "email" }));
-        }
-      })();
-    });
-
-    document.getElementById("apple")?.addEventListener("click", () => {
-      void (async () => {
-        try {
-          await invoke("parent_apple_sign_in");
-        } catch (e) {
-          renderError(String(e), () => void navigate({ name: "parent-auth", step: "email" }));
-        }
-      })();
-    });
-
-    document.getElementById("back")?.addEventListener("click", () => void navigate({ name: "role" }));
-    return;
-  }
-
-  const isTesterAccount =
-    (authEmail || "").toLowerCase().includes("tester") ||
-    (authEmail || "").toLowerCase().endsWith("@anajyo.com");
-  const otpHint = isTesterAccount
-    ? "Tester account bypass code: <strong>123456</strong>"
-    : "Check your email for the 6-digit code (use <strong>123456</strong> or <strong>424242</strong> for demo).";
-
-  view.innerHTML = `
-    <div class="auth-card">
-      <div class="auth-card-hero">
-        <div class="auth-logo-badge">🔑</div>
-        <h1>Enter Verification Code</h1>
-        <p>A 6-digit one-time passcode was sent to <strong>${escapeHtml(authEmail || "your email")}</strong>.</p>
-      </div>
-
-      <div id="otp-error-container"></div>
-
-      <label class="field">
-        <span>6-digit Code</span>
-        <input id="otp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="123456" style="letter-spacing:0.3em;font-size:1.3rem;text-align:center;font-weight:700;" />
-      </label>
-
-      <div class="tester-quick-chips">
-        <span style="font-size:0.75rem;color:var(--ms-on-surface-variant);font-weight:600;">Fast Fill:</span>
-        <button type="button" class="quick-chip" id="fill-test-code">Fill 123456</button>
-      </div>
-
-      <p style="font-size:0.85rem;color:var(--ms-on-surface-variant);margin:2px 0;">${otpHint}</p>
-
-      <div class="actions" style="margin-top: 6px;">
-        <button class="btn btn-primary" id="verify" style="width: 100%;">
-          <span id="verify-spinner" style="display:none;" class="btn-spinner"></span>
-          <span id="verify-text">Verify & continue →</span>
-        </button>
-        <button class="btn btn-secondary" id="back" style="width: 100%;">Use another email</button>
-      </div>
-    </div>`;
-
-  const verifyBtn = document.getElementById("verify") as HTMLButtonElement;
-  const verifySpinner = document.getElementById("verify-spinner") as HTMLElement;
-  const verifyText = document.getElementById("verify-text") as HTMLElement;
-  const otpInput = document.getElementById("otp") as HTMLInputElement;
-  const errContainer = document.getElementById("otp-error-container") as HTMLElement;
-
-  document.getElementById("fill-test-code")?.addEventListener("click", () => {
-    otpInput.value = "123456";
-    otpInput.focus();
+  const target = view;
+  void ensureBootstrap().then(() => {
+    mountScreen(
+      target,
+      createElement(ParentAuthScreen, {
+        bridge: appBridge(),
+        step,
+        email: (route.name === "parent-auth" && route.email) || authEmail,
+        onEmailChange: (e: string) => {
+          authEmail = e;
+        },
+      }),
+    );
   });
-
-  const setSubmitting = (submitting: boolean) => {
-    verifyBtn.disabled = submitting;
-    otpInput.disabled = submitting;
-    verifySpinner.style.display = submitting ? "inline-block" : "none";
-    verifyText.textContent = submitting ? "Verifying code…" : "Verify & continue →";
-  };
-
-  verifyBtn.addEventListener("click", () => {
-    void (async () => {
-      errContainer.innerHTML = "";
-      const code = otpInput.value.trim();
-      if (code.length !== 6) {
-        errContainer.innerHTML = `
-          <div class="error-banner">
-            <div>
-              <strong>Invalid code</strong>
-              Please enter the 6-digit verification code.
-            </div>
-          </div>`;
-        return;
-      }
-      setSubmitting(true);
-      try {
-        await invoke<ParentProfile>("parent_verify_otp", { email: authEmail, code });
-        const dash = await invoke<UiStateDto<{ children: ChildCard[] }>>("parent_dashboard");
-        const hasChildren = dash.state === "success" && (dash.data?.children?.length ?? 0) > 0;
-        const isCompleted = localStorage.getItem("meritscreen_onboarding_completed") === "true";
-        if (hasChildren || isCompleted) {
-          localStorage.setItem("meritscreen_onboarding_completed", "true");
-          await navigate({ name: "parent-home" });
-        } else {
-          await navigate({ name: "parent-onboard" });
-        }
-      } catch (e) {
-        setSubmitting(false);
-        errContainer.innerHTML = `
-          <div class="error-banner">
-            <div>
-              <strong>Verification failed</strong>
-              ${escapeHtml(friendlyError(e))}
-            </div>
-          </div>`;
-      }
-    })();
-  });
-  document.getElementById("back")?.addEventListener("click", () =>
-    void navigate({ name: "parent-auth", step: "email" }),
-  );
 }
 
 function renderOnboard(): void {
@@ -7128,6 +6962,9 @@ async function renderChild(): Promise<void> {
   if (st.screen !== "quiz") {
     document.body.classList.remove("quiz-blocking-mode");
   }
+  if (st.screen !== "pairing" && st.screen !== "pin_menu") {
+    unmountScreen();
+  }
 
   switch (st.screen) {
     case "pairing":
@@ -7159,239 +6996,10 @@ async function renderChild(): Promise<void> {
 
 function renderChildPairing(): void {
   if (!view) return;
-  view.innerHTML = `
-    <div class="pairing-card-panel">
-      <div class="pairing-hero-header">
-        <div class="pairing-shield-icon">🛡️</div>
-        <h1 class="pairing-hero-title">Pair This Computer</h1>
-        <p class="pairing-hero-subtitle">
-          Connect this desktop to your Watching sanctuary to activate intelligent screen time limits and educational micro-quizzes.
-        </p>
-      </div>
-
-      <!-- 3-Step Guided Walkthrough (Android Parity) -->
-      <div class="pairing-steps-row">
-        <div class="pairing-step-item">
-          <div class="pairing-step-num">1</div>
-          <div class="pairing-step-text">
-            <div class="pairing-step-title">Open Parent App</div>
-            <div class="pairing-step-desc">Open Watching on parent phone or tablet</div>
-          </div>
-        </div>
-        <div class="pairing-step-item">
-          <div class="pairing-step-num">2</div>
-          <div class="pairing-step-text">
-            <div class="pairing-step-title">Tap Pair Device</div>
-            <div class="pairing-step-desc">Select child profile & generate 6-digit PIN</div>
-          </div>
-        </div>
-        <div class="pairing-step-item">
-          <div class="pairing-step-num">3</div>
-          <div class="pairing-step-text">
-            <div class="pairing-step-title">Enter Code</div>
-            <div class="pairing-step-desc">Type code below to link this computer</div>
-          </div>
-        </div>
-      </div>
-
-      <div id="child-pair-error"></div>
-
-      <!-- Interactive 6-Digit PIN Code Box -->
-      <div class="pairing-code-section">
-        <div class="pairing-code-label">6-Digit Pairing Code</div>
-        <div class="pairing-code-input-wrap">
-          <input
-            id="code"
-            type="text"
-            inputmode="numeric"
-            maxlength="7"
-            autocomplete="one-time-code"
-            placeholder="••• •••"
-            class="pairing-code-input"
-            spellcheck="false"
-            autofocus
-          />
-        </div>
-        <div id="pairing-status-hint" class="pairing-status-hint">Enter the 6-digit code shown on the parent screen</div>
-
-        <!-- Quick Action Buttons -->
-        <div class="pairing-quick-actions">
-          <button type="button" class="pairing-chip-btn" id="btn-paste-code">
-            <span>📋</span> <span>Paste from Clipboard</span>
-          </button>
-          <button type="button" class="pairing-chip-btn" id="btn-demo-code">
-            <span>✨</span> <span>Quick Demo: 123 456</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Modern Autostart & Protection Toggle Card -->
-      <label class="pairing-toggle-card" for="child-pair-autostart">
-        <div class="pairing-toggle-left">
-          <div class="pairing-toggle-icon">🚀</div>
-          <div class="pairing-toggle-text">
-            <div class="pairing-toggle-title">Launch Watching on Computer Startup</div>
-            <div class="pairing-toggle-desc">Automatically starts on boot with tamper-resistant background supervision.</div>
-          </div>
-        </div>
-        <div class="pairing-switch">
-          <input type="checkbox" id="child-pair-autostart" checked />
-          <span class="pairing-switch-slider"></span>
-        </div>
-      </label>
-
-      <!-- Android-Parity 3-Pillar Safeguard Highlights -->
-      <div class="pairing-features-grid">
-        <div class="pairing-feature-box">
-          <div class="pairing-feature-head"><span>⏱️</span> Active Focus</div>
-          <div class="pairing-feature-desc">Tracks screen time only when active. Idle & locked states pause automatically.</div>
-        </div>
-        <div class="pairing-feature-box">
-          <div class="pairing-feature-head"><span>🧠</span> Micro-Quizzes</div>
-          <div class="pairing-feature-desc">Educational pause screens challenge children to earn extra minutes.</div>
-        </div>
-        <div class="pairing-feature-box">
-          <div class="pairing-feature-head"><span>🔒</span> Zero Cloud Track</div>
-          <div class="pairing-feature-desc">Hardware-backed keychain storage. No surveillance or keylogging.</div>
-        </div>
-      </div>
-
-      <!-- Action Buttons -->
-      <div class="actions" style="margin-top: 4px; display: flex; flex-direction: column; gap: 8px;">
-        <button class="btn btn-primary" id="pair" style="padding: 12px 24px; font-size: 1rem; width: 100%;">
-          <span id="pair-spinner" style="display:none;" class="btn-spinner"></span>
-          <span id="pair-text">Pair This Computer</span>
-        </button>
-        <button class="btn btn-secondary" id="back" style="padding: 10px 20px; width: 100%;">Cancel & Return</button>
-      </div>
-
-      <!-- Security & Telemetry Footer -->
-      <div class="pairing-security-note">
-        <span>🛡️</span>
-        <span>Encrypted locally in OS Keychain · Multi-screen protection · Demo mode accepts any 6 digits</span>
-      </div>
-    </div>`;
-
-  const pairBtn = document.getElementById("pair") as HTMLButtonElement;
-  const pairSpinner = document.getElementById("pair-spinner") as HTMLElement;
-  const pairText = document.getElementById("pair-text") as HTMLElement;
-  const codeInput = document.getElementById("code") as HTMLInputElement;
-  const autostartInput = document.getElementById("child-pair-autostart") as HTMLInputElement;
-  const statusHint = document.getElementById("pairing-status-hint") as HTMLElement;
-  const errBox = document.getElementById("child-pair-error") as HTMLElement;
-  const pasteBtn = document.getElementById("btn-paste-code");
-  const demoBtn = document.getElementById("btn-demo-code");
-
-  // Format code input with 3-3 grouping (e.g. "123 456")
-  const formatAndValidateCode = () => {
-    let raw = codeInput.value.replace(/\D/g, "").slice(0, 6);
-    if (raw.length > 3) {
-      codeInput.value = `${raw.slice(0, 3)} ${raw.slice(3)}`;
-    } else {
-      codeInput.value = raw;
-    }
-
-    if (raw.length === 6) {
-      codeInput.classList.add("valid");
-      if (statusHint) {
-        statusHint.textContent = "✓ Code ready to pair! Click below to activate.";
-        statusHint.classList.add("ready");
-      }
-    } else {
-      codeInput.classList.remove("valid");
-      if (statusHint) {
-        statusHint.textContent = raw.length > 0 ? `${raw.length} / 6 digits entered` : "Enter the 6-digit code shown on the parent screen";
-        statusHint.classList.remove("ready");
-      }
-    }
-  };
-
-  codeInput?.addEventListener("input", formatAndValidateCode);
-
-  codeInput?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      submitPair();
-    }
+  const target = view;
+  void ensureBootstrap().then(() => {
+    mountScreen(target, createElement(ChildPairingScreen, { bridge: appBridge() }));
   });
-
-  // Paste from clipboard helper
-  pasteBtn?.addEventListener("click", () => {
-    void (async () => {
-      try {
-        const text = await navigator.clipboard.readText();
-        const digits = text.replace(/\D/g, "").slice(0, 6);
-        if (digits.length > 0) {
-          codeInput.value = digits;
-          formatAndValidateCode();
-          codeInput.focus();
-        }
-      } catch {
-        codeInput.focus();
-      }
-    })();
-  });
-
-  // Demo code helper (123 456)
-  demoBtn?.addEventListener("click", () => {
-    codeInput.value = "123456";
-    formatAndValidateCode();
-    codeInput.focus();
-  });
-
-  const submitPair = () => {
-    void (async () => {
-      errBox.innerHTML = "";
-      const rawCode = codeInput.value.replace(/\D/g, "");
-      const shouldAutostart = autostartInput?.checked ?? true;
-      if (rawCode.length !== 6) {
-        errBox.innerHTML = `
-          <div class="error-banner" style="margin-bottom: 12px;">
-            <div>Please enter a valid 6-digit pairing code from the parent app.</div>
-          </div>`;
-        codeInput.focus();
-        return;
-      }
-
-      pairBtn.disabled = true;
-      codeInput.disabled = true;
-      if (autostartInput) autostartInput.disabled = true;
-      pairSpinner.style.display = "inline-block";
-      pairText.textContent = "Pairing this computer…";
-      try {
-        await invoke("child_pair", { code: rawCode, childName: null });
-        if (shouldAutostart) {
-          try {
-            await invoke("set_autostart", { enabled: true });
-          } catch {}
-        }
-        pairSpinner.style.display = "none";
-        pairText.textContent = "✓ Paired Successfully!";
-        showToast("✓ Computer paired successfully! Running in background.", "info");
-        setTimeout(async () => {
-          await navigate({ name: "child" });
-        }, 500);
-      } catch (e) {
-        pairBtn.disabled = false;
-        codeInput.disabled = false;
-        if (autostartInput) autostartInput.disabled = false;
-        pairSpinner.style.display = "none";
-        pairText.textContent = "Pair This Computer";
-        errBox.innerHTML = `
-          <div class="error-banner" style="margin-bottom: 12px;">
-            <div><strong>Pairing failed</strong>: ${escapeHtml(friendlyError(e))}</div>
-          </div>`;
-      }
-    })();
-  };
-
-  pairBtn?.addEventListener("click", submitPair);
-
-  document.getElementById("back")?.addEventListener("click", () => {
-    void setRole("unassigned");
-  });
-
-  // Focus code input automatically
-  setTimeout(() => codeInput?.focus(), 50);
 }
 
 function renderChildChecklist(st: ChildUiState): void {
@@ -8074,108 +7682,7 @@ function renderChildCeiling(st: ChildUiState): void {
 
 function renderChildPinMenu(st: ChildUiState): void {
   if (!view) return;
-  view.innerHTML = `
-    <div class="panel">
-      <h1>${escapeHtml(t("child_pin_menu_title"))}</h1>
-      <p class="muted">Enter 4-digit Parent PIN to unlock device settings or unpair. Demo PIN is <span class="mono">1234</span>.</p>
-      <div id="pin-menu-error"></div>
-      <label class="field">${escapeHtml(t("parent_pin_label"))}
-        <input id="pin" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••"
-          style="letter-spacing: 0.3em; font-size: 1.2rem; text-align: center;" />
-      </label>
-      <div class="actions">
-        <button class="btn btn-primary" id="unpair">
-          <span id="unpair-spinner" style="display:none;" class="btn-spinner"></span>
-          <span id="unpair-text">${escapeHtml(t("unpair_device"))}</span>
-        </button>
-        <button class="btn btn-secondary" id="btn-child-menu-exit" style="color:#ef4444;border-color:rgba(239,68,68,0.35);">
-          <span id="exit-menu-spinner" style="display:none;" class="btn-spinner"></span>
-          <span id="exit-menu-text">Exit Application</span>
-        </button>
-        <button class="btn btn-secondary" id="refresh">${escapeHtml(t("refresh_snapshot"))}</button>
-        <button class="btn btn-secondary" id="back">${escapeHtml(t("back"))}</button>
-      </div>
-      <p class="meta">Phase: ${escapeHtml(st.phase)} · Quiz Pack: ${escapeHtml(formatPackSource(st.packSource))}</p>
-    </div>`;
-
-  const unpairBtn = document.getElementById("unpair") as HTMLButtonElement;
-  const unpairSpinner = document.getElementById("unpair-spinner") as HTMLElement;
-  const unpairText = document.getElementById("unpair-text") as HTMLElement;
-  const exitMenuBtn = document.getElementById("btn-child-menu-exit") as HTMLButtonElement | null;
-  const exitMenuSpinner = document.getElementById("exit-menu-spinner") as HTMLElement | null;
-  const exitMenuText = document.getElementById("exit-menu-text") as HTMLElement | null;
-  const pinInput = document.getElementById("pin") as HTMLInputElement;
-  const errBox = document.getElementById("pin-menu-error") as HTMLElement;
-
-  unpairBtn?.addEventListener("click", () => {
-    void (async () => {
-      errBox.innerHTML = "";
-      const pin = pinInput.value.trim();
-      if (pin.length !== 4) {
-        errBox.innerHTML = `
-          <div class="error-banner" style="margin-bottom: 10px;">
-            <div>Please enter the 4-digit Parent PIN.</div>
-          </div>`;
-        return;
-      }
-      unpairBtn.disabled = true;
-      pinInput.disabled = true;
-      unpairSpinner.style.display = "inline-block";
-      unpairText.textContent = "Unpairing…";
-      try {
-        await invoke("child_pin_unpair", { pin });
-        showToast("Device successfully unpaired. Background service stopped.", "info");
-        await navigate({ name: "role" });
-      } catch (e) {
-        unpairBtn.disabled = false;
-        pinInput.disabled = false;
-        unpairSpinner.style.display = "none";
-        unpairText.textContent = t("unpair_device");
-        errBox.innerHTML = `
-          <div class="error-banner" style="margin-bottom: 10px;">
-            <div>${escapeHtml(friendlyError(e))}</div>
-          </div>`;
-      }
-    })();
-  });
-
-  exitMenuBtn?.addEventListener("click", () => {
-    void (async () => {
-      errBox.innerHTML = "";
-      const pin = pinInput.value.trim();
-      if (pin.length !== 4) {
-        errBox.innerHTML = `
-          <div class="error-banner" style="margin-bottom: 10px;">
-            <div>Please enter the 4-digit Parent PIN to exit.</div>
-          </div>`;
-        return;
-      }
-      if (exitMenuBtn) exitMenuBtn.disabled = true;
-      pinInput.disabled = true;
-      if (exitMenuSpinner) exitMenuSpinner.style.display = "inline-block";
-      if (exitMenuText) exitMenuText.textContent = "Exiting…";
-      try {
-        await invoke("child_exit_with_pin", { pin });
-      } catch (e) {
-        if (exitMenuBtn) exitMenuBtn.disabled = false;
-        pinInput.disabled = false;
-        if (exitMenuSpinner) exitMenuSpinner.style.display = "none";
-        if (exitMenuText) exitMenuText.textContent = "Exit Application";
-        errBox.innerHTML = `
-          <div class="error-banner" style="margin-bottom: 10px;">
-            <div>${escapeHtml(friendlyError(e))}</div>
-          </div>`;
-      }
-    })();
-  });
-
-  document.getElementById("refresh")?.addEventListener("click", () => void navigate({ name: "child" }));
-  document.getElementById("back")?.addEventListener("click", () => {
-    void (async () => {
-      await invoke("child_dismiss_pin_menu");
-      await navigate({ name: "child" });
-    })();
-  });
+  mountScreen(view, createElement(ChildPinMenuScreen, { bridge: appBridge(), childName: st.childName }));
 }
 
 async function setRole(role: DeviceRole): Promise<void> {
