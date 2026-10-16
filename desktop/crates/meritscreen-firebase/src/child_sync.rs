@@ -163,6 +163,12 @@ pub fn policy_from_value(value: &Value) -> ChildPolicy {
     if let Some(b) = bool_field(&fields, "paused") {
         policy.paused = b;
     }
+    // Today-only parent bonus (Android `bonusMinutesToday`; desktop adds `bonusDay`).
+    // Without a matching `bonusDay` the bonus is never applied, so a stale Android value can't leak.
+    if let Some(n) = int_field(&fields, "bonusMinutesToday") {
+        policy.bonus_minutes_today = n.max(0) as u32;
+    }
+    policy.bonus_day = string_field(&fields, "bonusDay");
     policy
 }
 
@@ -282,5 +288,20 @@ mod tests {
         let p = policy_from_value(&v);
         assert_eq!(p.quiz_mode.as_storage_str(), "device_interval");
         assert_eq!(p.quiz_interval_minutes, 20);
+    }
+}
+
+#[cfg(test)]
+mod bonus_parse_tests {
+    use super::*;
+
+    #[test]
+    fn parses_bonus_fields_and_ignores_undated_android_bonus() {
+        let p = policy_from_value(&serde_json::json!({"dailyCeilingMinutes": 90, "bonusMinutesToday": 30, "bonusDay": "2026-10-16"}));
+        assert_eq!(p.bonus_minutes_today, 30);
+        assert_eq!(p.bonus_day.as_deref(), Some("2026-10-16"));
+        assert_eq!(p.active_bonus_minutes("2026-10-16", ""), 30);
+        let android = policy_from_value(&serde_json::json!({"bonusMinutesToday": 45}));
+        assert_eq!(android.active_bonus_minutes("2026-10-16", ""), 0);
     }
 }

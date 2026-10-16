@@ -23,6 +23,9 @@ export interface ChildPolicy {
   defaultCooldownMinutes: number;
   emergencyApps: string[];
   paused: boolean;
+  /** Parent bonus for `bonusDay` only (child-local YYYY-MM-DD); never changes the daily limit. */
+  bonusMinutesToday?: number;
+  bonusDay?: string | null;
 }
 export interface InventoryApp {
   appId: string;
@@ -142,6 +145,7 @@ export interface ChildUiState {
   cooldownSeconds: number;
   dailyRemainingMinutes: number;
   ceilingHit: boolean;
+  bonusMinutesToday?: number;
   quiz: QuizPrompt | null;
   quizLock: { remainingSeconds: number; conceptLine: string } | null;
   lastFeedback: { correct: boolean; resultLine: string; whyLine: string; conceptLine: string } | null;

@@ -92,6 +92,9 @@ pub struct ChildUiState {
     pub cooldown_seconds: u32,
     pub daily_remaining_minutes: u32,
     pub ceiling_hit: bool,
+    /// Parent bonus minutes in force today (already included in `daily_remaining_minutes`).
+    #[serde(default)]
+    pub bonus_minutes_today: u32,
     pub quiz: Option<QuizPromptDto>,
     pub quiz_lock: Option<QuizLockDto>,
     pub last_feedback: Option<QuizAnswerFeedback>,
@@ -131,6 +134,7 @@ impl Default for ChildUiState {
             cooldown_seconds: 0,
             daily_remaining_minutes: 0,
             ceiling_hit: false,
+            bonus_minutes_today: 0,
             quiz: None,
             quiz_lock: None,
             last_feedback: None,

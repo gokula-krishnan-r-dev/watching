@@ -674,10 +674,36 @@ impl ParentSession {
                 meritscreen_core::app_config::coerce_chunk_minutes(policy.quiz_interval_minutes);
         }
         rec.card.quiz_mode = policy.quiz_mode;
+        // Bonus time only changes through `grant_bonus`; a settings save made from an older
+        // snapshot must not overwrite (or forge) today's grant.
+        policy.bonus_minutes_today = rec.policy.bonus_minutes_today;
+        policy.bonus_day = rec.policy.bonus_day.clone();
         rec.policy = policy;
         drop(g);
         self.persist_session();
         Ok(())
+    }
+
+    /// Grant one-off bonus minutes for today (child-local midnight reset). Never changes the
+    /// permanent daily limit. Returns the updated policy.
+    pub fn grant_bonus(&self, child_id: &str, minutes: u32) -> Result<ChildPolicy, AppError> {
+        self.require_signed_in()?;
+        if minutes == 0 || minutes > meritscreen_core::app_config::EMERGENCY_UNLOCK_MINUTES {
+            return Err(AppError::validation("Choose a bonus between 1 and 60 minutes."));
+        }
+        let today = meritscreen_core::session::local_today_key();
+        let mut g = self.inner.lock();
+        let rec = g
+            .children
+            .get_mut(child_id)
+            .ok_or_else(|| AppError::not_found_msg("Child not found."))?;
+        rec.policy
+            .grant_bonus(minutes, &today)
+            .map_err(AppError::validation)?;
+        let out = rec.policy.clone();
+        drop(g);
+        self.persist_session();
+        Ok(out)
     }
 
     pub fn add_child(&self, child_name: &str, age_band: &str) -> Result<ChildCard, AppError> {
@@ -1462,6 +1488,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn bonus_is_today_only_and_survives_settings_save() {
+        let s = ParentSession::demo();
+        s.verify_email_otp("test@example.com", "424242").await.unwrap();
+        let c = s.commit_onboarding("Mia", "7_to_9", "1234").unwrap();
+        let id = c.child_id.clone();
+        let base = s.child_detail(&id).unwrap().policy;
+        let limit = base.daily_ceiling_minutes;
+
+        let p = s.grant_bonus_synced(&id, 15).await.unwrap();
+        let p = { let _ = p; s.grant_bonus_synced(&id, 30).await.unwrap() };
+        assert_eq!(p.bonus_minutes_today, 45);
+        assert_eq!(p.bonus_day.as_deref(), Some(meritscreen_core::session::local_today_key().as_str()));
+        assert_eq!(p.daily_ceiling_minutes, limit, "permanent limit unchanged");
+
+        // A settings save built from the pre-bonus snapshot keeps the grant.
+        s.update_policy(&id, ChildPolicy { paused: true, ..base }).unwrap();
+        let after = s.child_detail(&id).unwrap().policy;
+        assert!(after.paused);
+        assert_eq!(after.bonus_minutes_today, 45);
+
+        assert!(s.grant_bonus(&id, 0).is_err());
+        assert!(s.grant_bonus(&id, 61).is_err());
+        let v = crate::remote::policy_to_value(&after);
+        assert_eq!(v["bonusMinutesToday"], 45);
+        assert!(v["bonusDay"].is_string());
+    }
+
+    #[tokio::test]
     async fn multi_child_and_remove_flow() {
         let s = ParentSession::demo();
         s.verify_email_otp("test@example.com", "424242")
@@ -1878,6 +1932,19 @@ impl ParentSession {
             ctx.remote.write_policy(&fam, &id, &stored, &ctx.token).await
         })
         .await
+    }
+
+    pub async fn grant_bonus_synced(&self, child_id: &str, minutes: u32) -> Result<ChildPolicy, AppError> {
+        let snap = self.snapshot();
+        let stored = self.grant_bonus(child_id, minutes)?;
+        let id = child_id.to_string();
+        let to_write = stored.clone();
+        self.run_synced(snap, |ctx| async move {
+            let fam = ctx.family_id.ok_or_else(AppError::not_found)?;
+            ctx.remote.write_policy(&fam, &id, &to_write, &ctx.token).await
+        })
+        .await?;
+        Ok(stored)
     }
 
     pub async fn update_app_rules_synced(&self, child_id: &str, rules: Vec<AppRule>) -> Result<(), AppError> {

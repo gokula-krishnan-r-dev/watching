@@ -269,7 +269,10 @@ function Launcher({ bridge, st, autoMinimize, onPin, onRefresh }: { bridge: AppB
         <Card className="p-4">
           <p className="m-0 text-xs font-semibold text-muted-foreground">Today</p>
           <p className="m-0 mt-1 text-2xl font-bold">{st.minutesUsedToday} min</p>
-          <p className="m-0 text-xs text-muted-foreground">{st.dailyRemainingMinutes} min left today</p>
+          <p className="m-0 text-xs text-muted-foreground">
+            {st.dailyRemainingMinutes} min left today
+            {(st.bonusMinutesToday ?? 0) > 0 && ` · incl. ${st.bonusMinutesToday} min bonus`}
+          </p>
         </Card>
         <Card className="p-4">
           <p className="m-0 text-xs font-semibold text-muted-foreground">Using now</p>

@@ -69,3 +69,15 @@ export function formatMinutes(m: number | null | undefined): string {
   const r = m % 60;
   return r ? `${h} h ${r} min` : `${h} h`;
 }
+
+/** Local calendar day as YYYY-MM-DD (matches the backend's bonus day key). */
+export function localDayKey(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Bonus minutes in force today for a policy (0 if the grant was for another day). */
+export function activeBonus(p: { bonusMinutesToday?: number; bonusDay?: string | null }): number {
+  return p.bonusDay && p.bonusDay === localDayKey() ? p.bonusMinutesToday ?? 0 : 0;
+}
+
+export const BONUS_MAX_PER_DAY = 240;

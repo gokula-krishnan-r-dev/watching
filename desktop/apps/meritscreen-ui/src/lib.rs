@@ -324,6 +324,21 @@ async fn parent_update_policy(
         .map_err(|e| e.user_message().into())
 }
 
+/// Parent-only: one-off bonus minutes for today (resets at the child's local midnight).
+/// `minutes` is 15, 30 or 60 (emergency unlock) from the UI; the permanent daily limit is unchanged.
+#[tauri::command]
+async fn parent_grant_bonus(
+    child_id: String,
+    minutes: u32,
+    state: State<'_, AppState>,
+) -> Result<ChildPolicy, String> {
+    state
+        .parent
+        .grant_bonus_synced(&child_id, minutes)
+        .await
+        .map_err(|e| e.user_message().into())
+}
+
 #[tauri::command]
 async fn parent_update_app_rules(
     child_id: String,
@@ -1388,6 +1403,7 @@ pub fn run() {
             parent_refresh,
             parent_child_detail,
             parent_update_policy,
+            parent_grant_bonus,
             parent_update_app_rules,
             parent_add_child,
             parent_remove_child,

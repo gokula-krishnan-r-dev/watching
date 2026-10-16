@@ -53,6 +53,8 @@ pub struct SessionSnapshot {
     pub minutes_used_today: u32,
     pub last_tick_elapsed_ms: Option<i64>,
     pub quiz_grace_until_elapsed_ms: Option<i64>,
+    /// Latest child-local day (`YYYY-MM-DD`) observed; guards bonus time against clock rollback.
+    pub max_local_day: String,
 }
 
 impl Default for SessionSnapshot {
@@ -70,6 +72,7 @@ impl Default for SessionSnapshot {
             minutes_used_today: 0,
             last_tick_elapsed_ms: None,
             quiz_grace_until_elapsed_ms: None,
+            max_local_day: local_today_key(),
         }
     }
 }
@@ -106,15 +109,37 @@ impl SessionSnapshot {
     }
 
     pub fn daily_remaining_minutes(&self, policy: &ChildPolicy) -> u32 {
-        let ceiling = policy
-            .daily_ceiling_minutes
-            .unwrap_or(app_config::DEFAULT_DAILY_CEILING_MINUTES);
-        ceiling.saturating_sub(self.minutes_used_today)
+        effective_ceiling(policy, self).saturating_sub(self.minutes_used_today)
+    }
+
+    /// Parent bonus minutes in force right now (today only, rollback-safe).
+    pub fn active_bonus_minutes(&self, policy: &ChildPolicy) -> u32 {
+        policy.active_bonus_minutes(&local_today_key(), &self.max_local_day)
     }
 }
 
 pub fn today_key() -> String {
     chrono::Utc::now().date_naive().to_string()
+}
+
+/// Child-local calendar day; bonus time resets at local midnight.
+pub fn local_today_key() -> String {
+    chrono::Local::now().date_naive().to_string()
+}
+
+/// Daily limit including today's bonus; `None` when the policy has no limit.
+pub fn effective_ceiling_opt(policy: &ChildPolicy, snap: &SessionSnapshot) -> Option<u32> {
+    policy
+        .daily_ceiling_minutes
+        .map(|c| c + snap.active_bonus_minutes(policy))
+}
+
+/// Daily limit including today's bonus, falling back to the default limit.
+pub fn effective_ceiling(policy: &ChildPolicy, snap: &SessionSnapshot) -> u32 {
+    policy
+        .daily_ceiling_minutes
+        .unwrap_or(app_config::DEFAULT_DAILY_CEILING_MINUTES)
+        + snap.active_bonus_minutes(policy)
 }
 
 /// Pure session engine. Fail lock is always device-wide for all non-emergency apps.
@@ -164,6 +189,10 @@ impl SessionEngine {
         day_key: &str,
     ) -> SessionSnapshot {
         let mut state = Self::on_new_day(snapshot, day_key);
+        let local = local_today_key();
+        if local > state.max_local_day {
+            state.max_local_day = local;
+        }
         state = Self::expire_shield_if_needed(state, now_elapsed_ms);
 
         if state.phase != SessionPhase::InBlock {
@@ -197,9 +226,7 @@ impl SessionEngine {
             state.minutes_used_today = today;
             state.last_tick_elapsed_ms = Some(now_elapsed_ms);
 
-            let ceiling = policy
-                .daily_ceiling_minutes
-                .unwrap_or(app_config::DEFAULT_DAILY_CEILING_MINUTES);
+            let ceiling = effective_ceiling(policy, &state);
             let under_grace = state
                 .quiz_grace_until_elapsed_ms
                 .is_some_and(|g| now_elapsed_ms < g);
@@ -249,7 +276,7 @@ impl SessionEngine {
         let under_grace = state
             .quiz_grace_until_elapsed_ms
             .is_some_and(|g| now_elapsed_ms < g);
-        if let Some(ceiling) = policy.daily_ceiling_minutes {
+        if let Some(ceiling) = effective_ceiling_opt(policy, &state) {
             if state.minutes_used_today >= ceiling && !under_grace {
                 state.phase = SessionPhase::QuizDue;
                 return state;
@@ -462,7 +489,7 @@ impl SessionEngine {
         if snapshot.phase == SessionPhase::Shielded {
             return false;
         }
-        if let Some(ceiling) = policy.daily_ceiling_minutes {
+        if let Some(ceiling) = effective_ceiling_opt(policy, snapshot) {
             if snapshot.minutes_used_today >= ceiling {
                 let under_grace = snapshot.quiz_grace_until_elapsed_ms.is_some();
                 if !under_grace {
@@ -647,5 +674,44 @@ mod tests {
         // 5. Advancing through the entire second block triggers the next quiz smoothly
         state = SessionEngine::tick(state, quiz_passed_time + 15 * 60_000 + 1, &policy, true);
         assert_eq!(state.phase, SessionPhase::QuizDue);
+    }
+}
+
+#[cfg(test)]
+mod bonus_engine_tests {
+    use super::*;
+
+    #[test]
+    fn bonus_raises_effective_ceiling_today_only() {
+        let mut policy = ChildPolicy { daily_ceiling_minutes: Some(60), ..ChildPolicy::default() };
+        let snap = SessionSnapshot { minutes_used_today: 60, ..SessionSnapshot::default() };
+        assert_eq!(snap.daily_remaining_minutes(&policy), 0);
+        policy.grant_bonus(15, &local_today_key()).unwrap();
+        assert_eq!(effective_ceiling_opt(&policy, &snap), Some(75));
+        assert_eq!(snap.daily_remaining_minutes(&policy), 15);
+        assert_eq!(policy.daily_ceiling_minutes, Some(60));
+
+        // Yesterday's grant does nothing today.
+        policy.bonus_day = Some("2000-01-01".into());
+        assert_eq!(snap.daily_remaining_minutes(&policy), 0);
+    }
+
+    #[test]
+    fn rollback_high_water_blocks_bonus() {
+        let mut policy = ChildPolicy { daily_ceiling_minutes: Some(60), ..ChildPolicy::default() };
+        policy.grant_bonus(30, &local_today_key()).unwrap();
+        // Device already observed a later day ⇒ clock was wound back.
+        let snap = SessionSnapshot { max_local_day: "9999-12-31".into(), ..SessionSnapshot::default() };
+        assert_eq!(snap.active_bonus_minutes(&policy), 0);
+    }
+
+    #[test]
+    fn tick_advances_high_water_and_old_snapshots_load() {
+        let mut v = serde_json::to_value(SessionSnapshot::default()).unwrap();
+        v.as_object_mut().unwrap().remove("maxLocalDay");
+        let mut old: SessionSnapshot = serde_json::from_value(v).unwrap();
+        old.max_local_day.clear();
+        let t = SessionEngine::tick(old, 0, &ChildPolicy::default(), false);
+        assert_eq!(t.max_local_day, local_today_key());
     }
 }

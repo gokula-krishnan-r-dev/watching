@@ -1,5 +1,5 @@
 import * as React from "react";
-import { BarChart3, ExternalLink, KeyRound, LogOut, Minus, Pause, Play, Plus, RefreshCw, Rocket, Settings, ShieldCheck, X } from "lucide-react";
+import { BarChart3, ExternalLink, Gift, Siren, KeyRound, LogOut, Minus, Pause, Play, Plus, RefreshCw, Rocket, Settings, ShieldCheck, X } from "lucide-react";
 import type { AppBridge } from "../bridge";
 import type { ChildDetail, ChildUiState, DashboardSnapshot, UiStateDto } from "../lib/types";
 import { Button } from "../ui/button";
@@ -8,7 +8,7 @@ import { Alert } from "../ui/alert";
 import { Dialog } from "../ui/dialog";
 import { PinInput } from "../components/code-input";
 import { Spinner } from "../ui/spinner";
-import { avatarFor, ageLabel, formatMinutes } from "../lib/catalog";
+import { activeBonus, avatarFor, ageLabel, BONUS_MAX_PER_DAY, formatMinutes } from "../lib/catalog";
 import { friendlyError } from "../lib/errors";
 import { cn } from "../lib/utils";
 
@@ -90,6 +90,7 @@ function ParentTray({ bridge, actions, initialChildId, reloadKey }: { bridge: Ap
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState<string | null>(null);
+  const [confirmEmergency, setConfirmEmergency] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -146,8 +147,25 @@ function ParentTray({ bridge, actions, initialChildId, reloadKey }: { bridge: Ap
 
   const { card, policy } = detail;
   const ceiling = policy.dailyCeilingMinutes;
-  const left = ceiling == null ? null : Math.max(0, ceiling - card.minutesUsedToday);
-  const pct = ceiling ? Math.min(100, Math.round((card.minutesUsedToday / ceiling) * 100)) : 0;
+  const bonus = activeBonus(policy);
+  const total = ceiling == null ? null : ceiling + bonus;
+  const left = total == null ? null : Math.max(0, total - card.minutesUsedToday);
+  const pct = total ? Math.min(100, Math.round((card.minutesUsedToday / total) * 100)) : 0;
+  const bonusRoom = BONUS_MAX_PER_DAY - bonus;
+
+  const grant = async (key: string, minutes: number) => {
+    setBusy(key);
+    try {
+      const p = await bridge.invoke<typeof policy>("parent_grant_bonus", { childId: card.childId, minutes });
+      setDetail({ ...detail, policy: { ...policy, ...p } });
+      bridge.toast(`+${minutes} min for ${card.displayName} today`, "success");
+    } catch (e) {
+      bridge.toast(friendlyError(e), "error");
+    } finally {
+      setBusy(null);
+      setConfirmEmergency(false);
+    }
+  };
 
   const updatePolicy = async (key: string, patch: Partial<typeof policy>, msg: string) => {
     setBusy(key);
@@ -190,6 +208,7 @@ function ParentTray({ bridge, actions, initialChildId, reloadKey }: { bridge: Ap
             <p className="m-0 text-lg font-bold">{left == null ? "No daily limit" : `${formatMinutes(left)} left`}</p>
             <p className="m-0 text-xs text-muted-foreground">
               {formatMinutes(card.minutesUsedToday)} used{ceiling != null && ` of ${formatMinutes(ceiling)}`}
+              {bonus > 0 && ` + ${formatMinutes(bonus)} bonus`}
             </p>
           </div>
           {ceiling != null && (
@@ -209,6 +228,46 @@ function ParentTray({ bridge, actions, initialChildId, reloadKey }: { bridge: Ap
           </div>
         )}
       </div>
+
+      {ceiling != null && (
+        <section aria-label="Bonus time today" className="flex flex-col gap-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-semibold">Bonus time (today only)</span>
+            <span className="text-muted-foreground" aria-live="polite">
+              {bonus > 0 ? `${formatMinutes(bonus)} granted · resets at midnight` : "None today"}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-1">
+            <Button size="sm" variant="secondary" disabled={busy != null || bonusRoom <= 0} loading={busy === "b15"} onClick={() => void grant("b15", 15)} aria-label="Give 15 bonus minutes today">
+              <Gift className="h-4 w-4" aria-hidden="true" /> +15 min
+            </Button>
+            <Button size="sm" variant="secondary" disabled={busy != null || bonusRoom <= 0} loading={busy === "b30"} onClick={() => void grant("b30", 30)} aria-label="Give 30 bonus minutes today">
+              <Gift className="h-4 w-4" aria-hidden="true" /> +30 min
+            </Button>
+            <Button size="sm" variant="secondary" className="text-destructive" disabled={busy != null || bonusRoom <= 0} onClick={() => setConfirmEmergency(true)} aria-label="Emergency unlock: 1 hour today">
+              <Siren className="h-4 w-4" aria-hidden="true" /> +1 h
+            </Button>
+          </div>
+          {bonusRoom <= 0 && <p className="m-0 text-xs text-muted-foreground">Today’s bonus maximum ({formatMinutes(BONUS_MAX_PER_DAY)}) reached.</p>}
+        </section>
+      )}
+
+      <Dialog
+        open={confirmEmergency}
+        onClose={() => setConfirmEmergency(false)}
+        title={`Emergency unlock for ${card.displayName}?`}
+        description="Adds 1 hour of screen time for today only. The daily limit stays the same and the bonus ends at midnight."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmEmergency(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" loading={busy === "b60"} onClick={() => void grant("b60", 60)}>
+              Unlock 1 hour
+            </Button>
+          </>
+        }
+      />
 
       <Button
         variant={policy.paused ? "default" : "secondary"}
@@ -289,6 +348,7 @@ export function ChildTrayCard({ bridge, actions, initial, onUnpaired }: { bridge
         </div>
         <p className="m-0 mt-1 text-xs text-muted-foreground">
           {st.minutesUsedToday} min used today · {st.dailyRemainingMinutes} min left
+          {(st.bonusMinutesToday ?? 0) > 0 && ` (includes ${st.bonusMinutesToday} min bonus)`}
         </p>
       </div>
       {st.activeAppName && <p className="m-0 text-xs text-muted-foreground">Using now: <strong className="text-foreground">{st.activeAppName}</strong></p>}

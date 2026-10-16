@@ -496,7 +496,12 @@ impl ChildRuntime {
         self.clear_quiz_lock_if_expired(&mut g);
         let screen = resolve_screen(&g);
         let (rem_block, rem_sec, cooldown, daily_rem, ceiling_hit) =
-            snapshot_metrics(&g.session, g.policy.daily_ceiling_minutes, g.elapsed_ms);
+            snapshot_metrics(
+                &g.session,
+                Some(meritscreen_core::session::effective_ceiling(&g.policy, &g.session)),
+                g.elapsed_ms,
+            );
+        let bonus_today = g.session.active_bonus_minutes(&g.policy);
         let quiz = g.quiz.as_ref().and_then(|q| {
             q.questions.get(q.index).map(|question| QuizPromptDto {
                 id: question.id.clone(),
@@ -571,6 +576,7 @@ impl ChildRuntime {
             cooldown_seconds: cooldown,
             daily_remaining_minutes: daily_rem,
             ceiling_hit,
+            bonus_minutes_today: bonus_today,
             quiz,
             quiz_lock,
             last_feedback: g.last_feedback.clone(),
@@ -955,10 +961,7 @@ fn resolve_screen(g: &Inner) -> ChildScreen {
         SessionPhase::QuizDue => ChildScreen::Quiz,
         SessionPhase::Shielded => ChildScreen::FailLock,
         SessionPhase::Idle | SessionPhase::InBlock => {
-            let ceiling = g
-                .policy
-                .daily_ceiling_minutes
-                .unwrap_or(meritscreen_core::app_config::DEFAULT_DAILY_CEILING_MINUTES);
+            let ceiling = meritscreen_core::session::effective_ceiling(&g.policy, &g.session);
             if g.session.minutes_used_today >= ceiling && g.session.phase == SessionPhase::Idle {
                 ChildScreen::Ceiling
             } else {
@@ -1082,6 +1085,33 @@ mod tests {
         let rt2 = super::ChildRuntime::with_secrets_dir(tempfile::tempdir().unwrap().path());
         assert!(rt2.bind_credential(&no_pin).is_err());
         assert!(!rt2.is_paired());
+    }
+
+    #[test]
+    fn bonus_extends_today_and_unlocks_ceiling() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = super::ChildRuntime::with_secrets_dir(dir.path());
+        {
+            let mut g = rt.inner.lock();
+            g.paired = true;
+            g.checklist_complete = true;
+            g.policy.daily_ceiling_minutes = Some(30);
+            g.session.minutes_used_today = 30;
+            g.session.phase = meritscreen_core::SessionPhase::Idle;
+        }
+        let st = rt.ui_state();
+        assert!(st.ceiling_hit);
+        assert_eq!(st.daily_remaining_minutes, 0);
+        {
+            let mut g = rt.inner.lock();
+            let today = meritscreen_core::session::local_today_key();
+            g.policy.grant_bonus(15, &today).unwrap();
+        }
+        let st = rt.ui_state();
+        assert_eq!(st.bonus_minutes_today, 15);
+        assert_eq!(st.daily_remaining_minutes, 15);
+        assert!(!st.ceiling_hit);
+        assert_ne!(st.screen, crate::models::ChildScreen::Ceiling);
     }
 
     #[test]

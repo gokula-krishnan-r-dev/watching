@@ -74,3 +74,11 @@ pub const WEEKEND_BONUS_EXTRA_MINUTES: u32 = 5;
 pub fn coerce_chunk_minutes(raw: u32) -> u32 {
     raw.clamp(SESSION_CHUNK_MIN_MINUTES, SESSION_CHUNK_MAX_MINUTES)
 }
+
+/// Parent "bonus time" grants (today only, reset at the child's local midnight).
+pub const BONUS_STEP_SMALL_MINUTES: u32 = 15;
+pub const BONUS_STEP_LARGE_MINUTES: u32 = 30;
+/// Emergency unlock = a one-off +60 min bonus for today (never touches the permanent limit).
+pub const EMERGENCY_UNLOCK_MINUTES: u32 = 60;
+/// Hard cap on bonus minutes granted for a single day.
+pub const BONUS_MAX_MINUTES_PER_DAY: u32 = 240;

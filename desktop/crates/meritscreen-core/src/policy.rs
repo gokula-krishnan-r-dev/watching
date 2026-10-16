@@ -33,6 +33,13 @@ pub struct ChildPolicy {
     pub emergency_apps: Vec<String>,
     #[serde(default)]
     pub paused: bool,
+    /// Bonus minutes granted by a parent for [`Self::bonus_day`] only (Android `bonusMinutesToday`).
+    /// Added on top of `daily_ceiling_minutes`; the permanent limit is never modified.
+    #[serde(default)]
+    pub bonus_minutes_today: u32,
+    /// Child-local calendar day (`YYYY-MM-DD`) the bonus applies to (`bonusDay`). Missing/other day ⇒ no bonus.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bonus_day: Option<String>,
 }
 
 fn default_quiz_interval() -> u32 {
@@ -70,7 +77,52 @@ impl Default for ChildPolicy {
             default_cooldown_minutes: app_config::DEFAULT_COOLDOWN_MINUTES,
             emergency_apps: Vec::new(),
             paused: false,
+            bonus_minutes_today: 0,
+            bonus_day: None,
         }
+    }
+}
+
+impl ChildPolicy {
+    /// Bonus minutes in force on `local_day`.
+    ///
+    /// `high_water_day` is the latest local day this device has observed; if the clock now reads an
+    /// earlier day (rollback), no bonus applies — an old grant can't be revived by winding the clock back.
+    pub fn active_bonus_minutes(&self, local_day: &str, high_water_day: &str) -> u32 {
+        if !high_water_day.is_empty() && local_day < high_water_day {
+            return 0;
+        }
+        match &self.bonus_day {
+            Some(d) if d == local_day => self
+                .bonus_minutes_today
+                .min(app_config::BONUS_MAX_MINUTES_PER_DAY),
+            _ => 0,
+        }
+    }
+
+    /// Add a one-off bonus for `local_day` (resets any bonus from another day). Returns the new total.
+    pub fn grant_bonus(&mut self, minutes: u32, local_day: &str) -> Result<u32, String> {
+        if minutes == 0 {
+            return Err("Bonus must be at least 1 minute.".into());
+        }
+        let current = match &self.bonus_day {
+            Some(d) if d == local_day => self.bonus_minutes_today,
+            _ => 0,
+        };
+        let max = app_config::BONUS_MAX_MINUTES_PER_DAY;
+        if current >= max {
+            return Err(format!("Today’s bonus is already at the {max}-minute maximum."));
+        }
+        let total = (current + minutes).min(max);
+        self.bonus_minutes_today = total;
+        self.bonus_day = Some(local_day.to_string());
+        Ok(total)
+    }
+
+    /// Remove today's bonus.
+    pub fn clear_bonus(&mut self) {
+        self.bonus_minutes_today = 0;
+        self.bonus_day = None;
     }
 }
 
@@ -105,5 +157,51 @@ impl AppRule {
             cooldown_minutes: app_config::DEFAULT_COOLDOWN_MINUTES,
             is_emergency: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod bonus_tests {
+    use super::*;
+
+    #[test]
+    fn bonus_applies_only_on_its_day_and_never_changes_limit() {
+        let mut p = ChildPolicy { daily_ceiling_minutes: Some(120), ..Default::default() };
+        assert_eq!(p.grant_bonus(15, "2026-10-16").unwrap(), 15);
+        assert_eq!(p.grant_bonus(30, "2026-10-16").unwrap(), 45);
+        assert_eq!(p.daily_ceiling_minutes, Some(120));
+        assert_eq!(p.active_bonus_minutes("2026-10-16", "2026-10-16"), 45);
+        assert_eq!(p.active_bonus_minutes("2026-10-17", "2026-10-16"), 0, "resets at midnight");
+        // A grant on a new day starts from zero.
+        assert_eq!(p.grant_bonus(15, "2026-10-17").unwrap(), 15);
+    }
+
+    #[test]
+    fn clock_rollback_does_not_revive_old_bonus() {
+        let mut p = ChildPolicy::default();
+        p.grant_bonus(60, "2026-10-16").unwrap();
+        // Device has already seen the 17th; clock wound back to the 16th.
+        assert_eq!(p.active_bonus_minutes("2026-10-16", "2026-10-17"), 0);
+    }
+
+    #[test]
+    fn bonus_is_capped() {
+        let mut p = ChildPolicy::default();
+        for _ in 0..4 {
+            p.grant_bonus(60, "d").unwrap();
+        }
+        assert!(p.grant_bonus(15, "d").is_err());
+        assert_eq!(p.bonus_minutes_today, app_config::BONUS_MAX_MINUTES_PER_DAY);
+    }
+
+    #[test]
+    fn old_policy_json_without_bonus_fields_still_loads() {
+        let mut v = serde_json::to_value(ChildPolicy::default()).unwrap();
+        let o = v.as_object_mut().unwrap();
+        o.remove("bonusMinutesToday");
+        o.remove("bonusDay");
+        let p: ChildPolicy = serde_json::from_value(v).unwrap();
+        assert_eq!(p.bonus_minutes_today, 0);
+        assert!(p.bonus_day.is_none());
     }
 }
