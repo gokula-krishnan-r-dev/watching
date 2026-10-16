@@ -34,11 +34,11 @@ export function Switch({
         disabled={disabled}
         onClick={() => onCheckedChange(!checked)}
         className={cn(
-          "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+          "relative inline-flex h-6 w-11 min-w-0 shrink-0 cursor-pointer items-center justify-start rounded-full p-0 border border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
           checked ? "bg-primary" : "bg-input",
         )}
       >
-        <span className={cn("inline-block h-5 w-5 rounded-full bg-white shadow transition-transform", checked ? "translate-x-5" : "translate-x-0.5")} />
+        <span className={cn("absolute left-0.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow transition-transform", checked ? "translate-x-5" : "translate-x-0")} />
       </button>
     </div>
   );

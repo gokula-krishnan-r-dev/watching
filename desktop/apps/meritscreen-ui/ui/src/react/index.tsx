@@ -5,3 +5,7 @@ export { ChildPairingScreen } from "./screens/child-pairing";
 export { ChildPinMenuScreen } from "./screens/child-pin-menu";
 export { RoleSelectScreen } from "./screens/role-select";
 export { ChildSetupWizard } from "./screens/child-setup-wizard";
+export { DashboardScreen } from "./screens/dashboard";
+export { ChildDetailScreen } from "./screens/child-detail";
+export { PolicyScreen } from "./screens/policy-screens";
+export { AllowlistScreen } from "./screens/allowlist";
