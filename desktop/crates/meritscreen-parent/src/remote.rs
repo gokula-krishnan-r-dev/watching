@@ -258,7 +258,7 @@ impl ParentRemote {
         self.commit(
             vec![
                 self.merge_write(&base, &child_body(child_name, age_band)),
-                self.set_write(&format!("{base}/policy/current"), &policy_to_value(policy)),
+                self.merge_write(&format!("{base}/policy/current"), &policy_to_value(policy)),
             ],
             token,
         )
@@ -272,8 +272,10 @@ impl ParentRemote {
         policy: &ChildPolicy,
         token: &str,
     ) -> Result<(), AppError> {
+        // Merge, never replace: Android-only fields (aiQuizzesEnabled, curriculumFocusIds,
+        // nursery*, region, …) that desktop's ChildPolicy doesn't model must survive.
         let path = format!("families/{family_id}/children/{child_id}/policy/current");
-        self.commit(vec![self.set_write(&path, &policy_to_value(policy))], token)
+        self.commit(vec![self.merge_write(&path, &policy_to_value(policy))], token)
             .await
     }
 
@@ -290,7 +292,7 @@ impl ParentRemote {
         let base = format!("families/{family_id}/children/{child_id}/appRules");
         let writes = rules
             .iter()
-            .map(|r| self.set_write(&format!("{base}/{}", app_rule_doc_id(&r.app_id)), &app_rule_to_value(r)))
+            .map(|r| self.merge_write(&format!("{base}/{}", app_rule_doc_id(&r.app_id)), &app_rule_to_value(r)))
             .collect();
         self.commit(writes, token).await
     }
