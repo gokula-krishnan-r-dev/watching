@@ -12,3 +12,4 @@ export { AllowlistScreen } from "./screens/allowlist";
 export { ReportsScreen } from "./screens/reports";
 export { AccountScreen, NotificationsScreen, DeleteFamilyScreen } from "./screens/account";
 export { PairingScreen } from "./screens/pairing";
+export { ChildSessionScreen, SESSION_SCREENS } from "./screens/child-session";

@@ -105,3 +105,49 @@ export interface ChildReportsSnapshot {
   quizStats: { totalAttempts: number; passes: number; passRatePercent: number; totalQuizMinutes: number };
   syncStatus: string;
 }
+export interface ChildLauncherApp {
+  appId: string;
+  displayName: string;
+  packageOrBundleId: string;
+  isEmergency: boolean;
+  iconTone: string;
+}
+export interface ChildChecklistItem {
+  id: string;
+  label: string;
+  done: boolean;
+  recommended: boolean;
+}
+export interface QuizPrompt {
+  id: string;
+  prompt: string;
+  choices: { id: string; text: string }[];
+  index: number;
+  total: number;
+  teachTitle: string | null;
+  teachBody: string[];
+}
+export interface ChildUiState {
+  paired: boolean;
+  screen: string;
+  phase: string;
+  childName: string;
+  apps: ChildLauncherApp[];
+  checklist: ChildChecklistItem[];
+  checklistComplete: boolean;
+  minutesUsedToday: number;
+  minutesRemainingBlock: number;
+  secondsRemainingBlock?: number;
+  blockDurationMinutes?: number;
+  cooldownSeconds: number;
+  dailyRemainingMinutes: number;
+  ceilingHit: boolean;
+  quiz: QuizPrompt | null;
+  quizLock: { remainingSeconds: number; conceptLine: string } | null;
+  lastFeedback: { correct: boolean; resultLine: string; whyLine: string; conceptLine: string } | null;
+  lastResult: { passed: boolean; correctCount: number; total: number; percent: number } | null;
+  packSource: string;
+  elapsedMs: number;
+  activeAppId?: string | null;
+  activeAppName?: string | null;
+}

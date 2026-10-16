@@ -10,7 +10,15 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const en = JSON.parse(readFileSync(join(root, "src/i18n/en.json"), "utf8"));
 const css = readFileSync(join(root, "src/styles.css"), "utf8");
-const main = readFileSync(join(root, "src/main.ts"), "utf8");
+// UI lives in legacy main.ts plus the React layer (src/react); scan both.
+import { readdirSync, statSync } from "node:fs";
+const collect = (dir) =>
+  readdirSync(dir).flatMap((f) => {
+    const p = join(dir, f);
+    if (statSync(p).isDirectory()) return f === "test" ? [] : collect(p);
+    return /\.(ts|tsx)$/.test(f) ? [readFileSync(p, "utf8")] : [];
+  });
+const main = [readFileSync(join(root, "src/main.ts"), "utf8"), ...collect(join(root, "src/react"))].join("\n");
 
 const required = [
   "a11y_quiz_dialog",
@@ -37,6 +45,8 @@ if (!css.includes(":focus-visible")) {
 
 for (const needle of [
   'role="dialog"',
+  "a11y_cooldown_timer",
+  "aria-keyshortcuts",
   "aria-modal",
   "a11y_quiz_choices",
   "a11y_fail_lock_dialog",
@@ -44,7 +54,7 @@ for (const needle of [
   "keydown",
 ]) {
   if (!main.includes(needle)) {
-    console.error(`a11y-smoke: main.ts missing ${needle}`);
+    console.error(`a11y-smoke: UI missing ${needle}`);
     process.exit(1);
   }
 }

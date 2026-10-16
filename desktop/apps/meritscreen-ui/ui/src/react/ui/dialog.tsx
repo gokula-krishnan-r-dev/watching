@@ -53,7 +53,7 @@ export function Dialog({
   }, [open, onClose]);
   if (!open) return null;
   return createPortal(
-    <div className="ms-react-root fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="ms-react-root fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className={cn("w-full max-w-md rounded-lg border border-border bg-card p-6 text-card-foreground shadow-xl", className)}>
         <h2 id={titleId} className="m-0 text-lg font-bold">
           {title}
