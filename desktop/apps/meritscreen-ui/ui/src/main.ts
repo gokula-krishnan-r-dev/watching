@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isSessionExpired, SESSION_EXPIRED_MSG } from "./react/lib/errors";
 import { listen } from "@tauri-apps/api/event";
 import { initLocale } from "./i18n";
 import { createElement } from "react";
@@ -504,9 +505,29 @@ async function navigate(next: Route): Promise<void> {
   await render();
 }
 
+let sessionRedirecting = false;
+/** The backend already tried refreshing the ID token; send the parent back to sign-in once. */
+async function handleSessionExpired(): Promise<void> {
+  if (sessionRedirecting || route.name === "parent-auth") return;
+  sessionRedirecting = true;
+  try {
+    showToast(SESSION_EXPIRED_MSG, "info", 5000);
+    await navigate({ name: "parent-auth", step: "email" });
+  } finally {
+    sessionRedirecting = false;
+  }
+}
+
 function appBridge(): AppBridge {
   return {
-    invoke: (cmd, args) => invoke(cmd, args),
+    invoke: async (cmd, args) => {
+      try {
+        return await invoke(cmd, args);
+      } catch (e) {
+        if (cmd.startsWith("parent_") && isSessionExpired(e)) void handleSessionExpired();
+        throw e;
+      }
+    },
     navigate: (r) => navigate(r as Route),
     toast: (m, type) => showToast(m, type ?? "success"),
     devShortcuts: bootstrap?.devShortcuts ?? false,

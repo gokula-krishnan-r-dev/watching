@@ -459,7 +459,7 @@ impl ParentSession {
         let email = normalize_email(email)?;
         info!("send_email_otp requested for {email}");
         if let Some(callables) = &self.callables {
-            let token = self.id_token();
+            let token = self.id_token().filter(|t| token_is_fresh(t, now_ms()));
             match callables
                 .invoke("sendEmailOtp", json!({ "email": email }), token.as_deref())
                 .await
@@ -800,32 +800,15 @@ impl ParentSession {
                 let call_res = match call_res {
                     Ok(res) => Ok(res),
                     Err(e) => {
-                        // If token expired or unauthenticated, try to refresh once if auth client exists
-                        if let Some(auth) = &self.auth {
-                            let ref_token = self
-                                .inner
-                                .lock()
-                                .tokens
-                                .as_ref()
-                                .map(|t| t.refresh_token.clone())
-                                .filter(|s| !s.trim().is_empty());
-                            if let Some(ref_tok) = ref_token {
-                                if let Ok(new_tokens) = auth.refresh_id_token(&ref_tok).await {
-                                    let new_id = new_tokens.id_token.clone();
-                                    self.inner.lock().tokens = Some(new_tokens);
-                                    self.persist_session();
+                        // Token rejected: refresh once and retry.
+                        if is_auth_rejection(&e) {
+                            match self.refresh_id_token().await {
+                                Ok(new_id) => {
                                     callables
-                                        .invoke(
-                                            "createPairingToken",
-                                            json!({ "childId": child_id }),
-                                            Some(&new_id),
-                                        )
+                                        .invoke("createPairingToken", json!({ "childId": child_id }), Some(&new_id))
                                         .await
-                                } else {
-                                    Err(e)
                                 }
-                            } else {
-                                Err(e)
+                                Err(_) => Err(e),
                             }
                         } else {
                             Err(e)
@@ -1064,44 +1047,49 @@ impl ParentSession {
         }
     }
 
+    /// A usable ID token, or `None`. See [`Self::fresh_id_token`].
     pub async fn ensure_id_token(&self) -> Option<String> {
-        let (current_token, refresh_token) = {
-            let g = self.inner.lock();
-            let current = g
-                .tokens
-                .as_ref()
-                .map(|t| t.id_token.clone())
-                .filter(|s| !s.trim().is_empty());
-            let refresh = g
-                .tokens
-                .as_ref()
-                .map(|t| t.refresh_token.clone())
-                .filter(|s| !s.trim().is_empty());
-            (current, refresh)
-        };
+        self.fresh_id_token().await.ok()
+    }
 
-        if let Some(token) = current_token {
-            return Some(token);
+    /// Return the cached ID token if it is not expired (with a small skew), otherwise
+    /// refresh it with the stored refresh token. Firebase ID tokens live one hour, and a
+    /// persisted session can outlive that by days, so expiry must be checked every time.
+    pub async fn fresh_id_token(&self) -> Result<String, AppError> {
+        let current = self.id_token();
+        if let Some(tok) = current.filter(|t| token_is_fresh(t, now_ms())) {
+            return Ok(tok);
         }
+        self.refresh_id_token().await
+    }
 
-        if let (Some(refresh), Some(auth)) = (refresh_token, &self.auth) {
-            match auth.refresh_id_token(&refresh).await {
-                Ok(new_tokens) => {
-                    let id_token = new_tokens.id_token.clone();
-                    {
-                        let mut g = self.inner.lock();
-                        g.tokens = Some(new_tokens);
-                    }
-                    self.persist_session();
-                    return Some(id_token);
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to refresh parent session token: {e:?}");
-                }
+    /// Force a token refresh (used after a 401 from Firestore / a callable).
+    /// Network failures stay network errors; only a rejected / missing refresh token
+    /// becomes "session expired".
+    pub async fn refresh_id_token(&self) -> Result<String, AppError> {
+        let refresh = self
+            .inner
+            .lock()
+            .tokens
+            .as_ref()
+            .map(|t| t.refresh_token.clone())
+            .filter(|s| !s.trim().is_empty());
+        let (Some(refresh), Some(auth)) = (refresh, self.auth.clone()) else {
+            return Err(AppError::auth_msg(SESSION_EXPIRED));
+        };
+        match auth.refresh_id_token(&refresh).await {
+            Ok(new_tokens) => {
+                let id_token = new_tokens.id_token.clone();
+                self.inner.lock().tokens = Some(new_tokens);
+                self.persist_session();
+                info!("parent ID token refreshed");
+                Ok(id_token)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to refresh parent session token: {e:?}");
+                Err(refresh_failure(&e))
             }
         }
-
-        None
     }
 
     fn id_token(&self) -> Option<String> {
@@ -1180,7 +1168,8 @@ impl ParentSession {
         }
         let mut records: Vec<ChildRecord> = self.inner.lock().children.values().cloned().collect();
         records.sort_by(|a, b| a.card.display_name.to_lowercase().cmp(&b.card.display_name.to_lowercase()));
-        let ctx = self.remote_ctx().await.ok().flatten();
+        let mut ctx = self.remote_ctx().await.ok().flatten();
+        let mut refreshed = false;
         let family_id = ctx.as_ref().and_then(|c| c.family_id.clone());
         let today = chrono::Local::now().date_naive();
         let now_ms = chrono::Utc::now().timestamp_millis();
@@ -1188,8 +1177,8 @@ impl ParentSession {
         let mut any_cloud = false;
         for rec in &records {
             let local = local_telemetry(rec);
-            let (telemetry, error) = match (&ctx, &family_id) {
-                (Some(c), Some(f)) => match c.remote.load_child_telemetry(f, &rec.card.child_id, &c.token).await {
+            let (telemetry, error) = match (&mut ctx, &family_id) {
+                (Some(c), Some(f)) => match self.load_telemetry_retrying(c, f, &rec.card.child_id, &mut refreshed).await {
                     Ok(mut t) => {
                         any_cloud = true;
                         t.quiz_today_counts = local.quiz_today_counts;
@@ -1228,6 +1217,23 @@ impl ParentSession {
             children.push(ins);
         }
         Ok(FamilyInsights { source: if any_cloud { "cloud".into() } else { "local".into() }, generated_at_ms: now_ms, children })
+    }
+
+    async fn load_telemetry_retrying(
+        &self,
+        ctx: &mut RemoteCtx,
+        family_id: &str,
+        child_id: &str,
+        refreshed: &mut bool,
+    ) -> Result<crate::analytics::ChildTelemetry, AppError> {
+        match ctx.remote.load_child_telemetry(family_id, child_id, &ctx.token).await {
+            Err(AppError::Auth(_)) if !*refreshed => {
+                *refreshed = true;
+                ctx.token = self.refresh_id_token().await?;
+                ctx.remote.load_child_telemetry(family_id, child_id, &ctx.token).await
+            }
+            other => other,
+        }
     }
 
     pub fn child_reports(&self, child_id: &str) -> Result<ChildReportsSnapshot, AppError> {
@@ -1406,6 +1412,29 @@ fn random_digits(len: usize) -> String {
     (0..len)
         .map(|_| char::from(b'0' + rng.gen_range(0..10)))
         .collect()
+}
+
+/// Shown (and matched by the UI to redirect to sign-in) only when the refresh token is
+/// missing or rejected.
+pub const SESSION_EXPIRED: &str = "Your session expired. Please sign in again.";
+/// See [`meritscreen_firebase::token::token_is_fresh`].
+fn token_is_fresh(token: &str, now: i64) -> bool {
+    meritscreen_firebase::token::token_is_fresh(token, now)
+}
+
+fn is_auth_rejection(e: &meritscreen_firebase::FirebaseError) -> bool {
+    matches!(e, meritscreen_firebase::FirebaseError::Http { status: 401 | 403, .. } | meritscreen_firebase::FirebaseError::Auth(_))
+}
+
+/// Map a failed refresh: network stays retryable, anything the server rejected means
+/// the session is really gone.
+fn refresh_failure(e: &meritscreen_firebase::FirebaseError) -> AppError {
+    use meritscreen_firebase::FirebaseError as F;
+    match e {
+        F::Network(_) => AppError::network(),
+        F::Http { status, .. } if *status >= 500 => AppError::network(),
+        _ => AppError::auth_msg(SESSION_EXPIRED),
+    }
 }
 
 fn now_ms() -> i64 {
@@ -1793,6 +1822,7 @@ mod tests {
     }
 }
 
+#[derive(Clone)]
 struct RemoteCtx {
     remote: ParentRemote,
     token: String,
@@ -1847,10 +1877,7 @@ impl ParentSession {
         if profile.uid.starts_with("tester-") || profile.uid.starts_with("demo-") {
             return Ok(None);
         }
-        let token = self
-            .ensure_id_token()
-            .await
-            .ok_or_else(|| AppError::auth_msg("Your session expired. Sign in again."))?;
+        let token = self.fresh_id_token().await?;
         Ok(Some(RemoteCtx {
             remote,
             token,
@@ -1860,22 +1887,35 @@ impl ParentSession {
         }))
     }
 
+    /// Run a remote operation with a fresh token; on an auth failure refresh the token
+    /// once and retry. `Ok(None)` means there is no remote (offline / tester- / demo- uid).
+    async fn remote_call<T, F, Fut>(&self, f: F) -> Result<Option<T>, AppError>
+    where
+        F: Fn(RemoteCtx) -> Fut,
+        Fut: std::future::Future<Output = Result<T, AppError>>,
+    {
+        let Some(ctx) = self.remote_ctx().await? else {
+            return Ok(None);
+        };
+        match f(ctx.clone()).await {
+            Err(AppError::Auth(first)) => {
+                tracing::info!("remote call rejected ({first}); refreshing token and retrying once");
+                let token = self.refresh_id_token().await?;
+                f(RemoteCtx { token, ..ctx }).await.map(Some)
+            }
+            other => other.map(Some),
+        }
+    }
+
     async fn run_synced<F, Fut>(&self, snap: Snapshot, f: F) -> Result<(), AppError>
     where
-        F: FnOnce(RemoteCtx) -> Fut,
+        F: Fn(RemoteCtx) -> Fut,
         Fut: std::future::Future<Output = Result<(), AppError>>,
     {
-        match self.remote_ctx().await {
-            Ok(None) => Ok(()),
-            Ok(Some(ctx)) => match f(ctx).await {
-                Ok(()) => Ok(()),
-                Err(e) => {
-                    tracing::warn!(error = ?e, "remote write failed; rolling back");
-                    self.restore(snap);
-                    Err(e)
-                }
-            },
+        match self.remote_call(f).await {
+            Ok(_) => Ok(()),
             Err(e) => {
+                tracing::warn!(error = ?e, "remote write failed; rolling back");
                 self.restore(snap);
                 Err(e)
             }
@@ -1885,10 +1925,11 @@ impl ParentSession {
     /// After sign-in: pull an existing family (e.g. created on Android) into local state.
     /// Returns true if a family exists.
     pub async fn hydrate_from_remote(&self) -> Result<bool, AppError> {
-        let Some(ctx) = self.remote_ctx().await? else {
+        let loaded = self.remote_call(|ctx| async move { ctx.remote.load_family(&ctx.uid, &ctx.token).await }).await?;
+        let Some(loaded) = loaded else {
             return Ok(self.profile().and_then(|p| p.family_id).is_some());
         };
-        let Some(fam) = ctx.remote.load_family(&ctx.uid, &ctx.token).await? else {
+        let Some(fam) = loaded else {
             return Ok(false);
         };
         {
@@ -1942,7 +1983,9 @@ impl ParentSession {
         };
         let family_id = self.profile().and_then(|p| p.family_id).unwrap_or_default();
         let c = card.clone();
-        self.run_synced(snap, |ctx| async move {
+        self.run_synced(snap, |ctx| {
+            let (family_id, pin_hash, policy, c) = (family_id.clone(), pin_hash.clone(), policy.clone(), c.clone());
+            async move {
             if had_family {
                 ctx.remote
                     .upsert_child(&family_id, &c.child_id, &c.display_name, &c.age_band, &policy, &ctx.token)
@@ -1952,6 +1995,7 @@ impl ParentSession {
                 ctx.remote
                     .create_family(&ctx.uid, &ctx.email, &family_id, &pin_hash, &c.child_id, &c.display_name, &c.age_band, &policy, &ctx.token)
                     .await
+            }
             }
         })
         .await?;
@@ -1963,9 +2007,12 @@ impl ParentSession {
         let card = self.add_child(child_name, age_band)?;
         let policy = self.inner.lock().children.get(&card.child_id).map(|r| r.policy.clone()).unwrap_or_default();
         let c = card.clone();
-        self.run_synced(snap, |ctx| async move {
+        self.run_synced(snap, |ctx| {
+            let (c, policy) = (c.clone(), policy.clone());
+            async move {
             let fam = ctx.family_id.ok_or_else(|| AppError::validation("Finish family setup first."))?;
             ctx.remote.upsert_child(&fam, &c.child_id, &c.display_name, &c.age_band, &policy, &ctx.token).await
+            }
         })
         .await?;
         Ok(card)
@@ -1975,9 +2022,12 @@ impl ParentSession {
         let snap = self.snapshot();
         self.remove_child(child_id)?;
         let id = child_id.to_string();
-        self.run_synced(snap, |ctx| async move {
+        self.run_synced(snap, |ctx| {
+            let id = id.clone();
+            async move {
             let fam = ctx.family_id.ok_or_else(AppError::not_found)?;
             ctx.remote.delete_child(&fam, &id, &ctx.token).await
+            }
         })
         .await
     }
@@ -1987,9 +2037,12 @@ impl ParentSession {
         self.update_policy(child_id, policy)?;
         let stored = self.inner.lock().children.get(child_id).map(|r| r.policy.clone()).unwrap_or_default();
         let id = child_id.to_string();
-        self.run_synced(snap, |ctx| async move {
+        self.run_synced(snap, |ctx| {
+            let (id, stored) = (id.clone(), stored.clone());
+            async move {
             let fam = ctx.family_id.ok_or_else(AppError::not_found)?;
             ctx.remote.write_policy(&fam, &id, &stored, &ctx.token).await
+            }
         })
         .await
     }
@@ -1999,9 +2052,12 @@ impl ParentSession {
         let stored = self.grant_bonus(child_id, minutes)?;
         let id = child_id.to_string();
         let to_write = stored.clone();
-        self.run_synced(snap, |ctx| async move {
+        self.run_synced(snap, |ctx| {
+            let (id, to_write) = (id.clone(), to_write.clone());
+            async move {
             let fam = ctx.family_id.ok_or_else(AppError::not_found)?;
             ctx.remote.write_policy(&fam, &id, &to_write, &ctx.token).await
+            }
         })
         .await?;
         Ok(stored)
@@ -2011,9 +2067,12 @@ impl ParentSession {
         let snap = self.snapshot();
         self.update_app_rules(child_id, rules.clone())?;
         let id = child_id.to_string();
-        self.run_synced(snap, |ctx| async move {
+        self.run_synced(snap, |ctx| {
+            let (id, rules) = (id.clone(), rules.clone());
+            async move {
             let fam = ctx.family_id.ok_or_else(AppError::not_found)?;
             ctx.remote.write_app_rules(&fam, &id, &rules, &ctx.token).await
+            }
         })
         .await
     }
@@ -2022,9 +2081,12 @@ impl ParentSession {
         let snap = self.snapshot();
         self.reset_pin(new_pin)?;
         let hash = self.pin_hash().unwrap_or_default();
-        self.run_synced(snap, |ctx| async move {
+        self.run_synced(snap, |ctx| {
+            let hash = hash.clone();
+            async move {
             let fam = ctx.family_id.ok_or_else(|| AppError::validation("Finish family setup first."))?;
             ctx.remote.set_pin_hash(&fam, &hash, &ctx.token).await
+            }
         })
         .await
     }
@@ -2033,8 +2095,11 @@ impl ParentSession {
         let snap = self.snapshot();
         self.set_notification_prefs(prefs.clone());
         let v = serde_json::to_value(&prefs).unwrap_or_default();
-        self.run_synced(snap, |ctx| async move {
+        self.run_synced(snap, |ctx| {
+            let v = v.clone();
+            async move {
             ctx.remote.set_notification_prefs(&ctx.uid, &v, &ctx.token).await
+            }
         })
         .await
     }
@@ -2043,9 +2108,12 @@ impl ParentSession {
         let snap = self.snapshot();
         self.unpair_device(child_id)?;
         let id = child_id.to_string();
-        self.run_synced(snap, |ctx| async move {
+        self.run_synced(snap, |ctx| {
+            let id = id.clone();
+            async move {
             let fam = ctx.family_id.ok_or_else(AppError::not_found)?;
             ctx.remote.revoke_devices(&fam, &id, &ctx.token).await
+            }
         })
         .await
     }
@@ -2054,10 +2122,13 @@ impl ParentSession {
         let snap = self.snapshot();
         let family_id = snap.profile.as_ref().and_then(|p| p.family_id.clone());
         self.delete_family()?;
-        self.run_synced(snap, |ctx| async move {
+        self.run_synced(snap, |ctx| {
+            let family_id = family_id.clone();
+            async move {
             match family_id {
                 Some(f) => ctx.remote.delete_family(&f, &ctx.token).await,
                 None => Ok(()),
+            }
             }
         })
         .await
@@ -2198,5 +2269,157 @@ fn local_telemetry(rec: &ChildRecord) -> crate::analytics::ChildTelemetry {
         usage_days: days,
         quiz_today_counts: (rec.quiz_attempts_today > 0).then_some((rec.quiz_attempts_today, rec.quiz_passes_today)),
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod token_refresh_tests {
+    use super::*;
+    use crate::remote::ParentRemote;
+    use async_trait::async_trait;
+    use base64::Engine;
+    use meritscreen_firebase::mock::MockFirestoreClient;
+    use meritscreen_firebase::{FirebaseError, FirebaseResult};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn jwt(exp_ms: i64, tag: &str) -> String {
+        let enc = |v: serde_json::Value| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v.to_string());
+        format!("{}.{}.sig", enc(json!({"alg": "RS256"})), enc(json!({"exp": exp_ms / 1000, "tag": tag})))
+    }
+
+    /// Refresh mints a new valid JWT; `mode` 0 = ok, 1 = rejected (400), 2 = server down (503).
+    struct Auth {
+        calls: AtomicUsize,
+        mode: usize,
+    }
+    #[async_trait]
+    impl AuthClient for Auth {
+        async fn sign_in_with_custom_token(&self, _c: &str) -> FirebaseResult<AuthTokens> {
+            unreachable!()
+        }
+        async fn refresh_id_token(&self, refresh: &str) -> FirebaseResult<AuthTokens> {
+            let n = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+            match self.mode {
+                1 => Err(FirebaseError::Http { status: 400, body: r#"{"error":{"message":"TOKEN_EXPIRED"}}"#.into() }),
+                2 => Err(FirebaseError::Http { status: 503, body: String::new() }),
+                _ => Ok(AuthTokens {
+                    id_token: jwt(now_ms() + 3_600_000, &format!("fresh{n}")),
+                    refresh_token: refresh.into(),
+                    expires_in: 3600,
+                    user_id: "u1".into(),
+                }),
+            }
+        }
+    }
+
+    /// Callable that, like the Firebase gateway, rejects any token it doesn't accept with 401.
+    struct Callable {
+        accept: Box<dyn Fn(&str) -> bool + Send + Sync>,
+        calls: Mutex<Vec<(String, String)>>,
+    }
+    #[async_trait]
+    impl CallableClient for Callable {
+        async fn invoke(&self, name: &str, _d: serde_json::Value, t: Option<&str>) -> FirebaseResult<serde_json::Value> {
+            let t = t.unwrap_or("").to_string();
+            self.calls.lock().push((name.into(), t.clone()));
+            if (self.accept)(&t) {
+                Ok(json!({"ok": true}))
+            } else {
+                Err(FirebaseError::Http { status: 401, body: r#"{"error":{"message":"Unauthenticated","status":"UNAUTHENTICATED"}}"#.into() })
+            }
+        }
+    }
+
+    fn session(uid: &str, id_token: String, mode: usize, accept: Box<dyn Fn(&str) -> bool + Send + Sync>) -> (ParentSession, Arc<Auth>, Arc<Callable>, String) {
+        let auth = Arc::new(Auth { calls: AtomicUsize::new(0), mode });
+        let callable = Arc::new(Callable { accept, calls: Mutex::new(Vec::new()) });
+        let remote = ParentRemote::new(Arc::new(MockFirestoreClient::default()), callable.clone(), "p");
+        let s = ParentSession::with_backends(callable.clone(), auth.clone()).with_remote(remote);
+        {
+            let mut g = s.inner.lock();
+            g.profile = Some(ParentProfile { uid: uid.into(), email: "tester4.parent@anajyo.com".into(), family_id: Some("f1".into()) });
+            g.tokens = Some(AuthTokens { id_token, refresh_token: "r".into(), expires_in: 3600, user_id: uid.into() });
+        }
+        let child = s.add_child("Test", "7_to_9").unwrap().child_id;
+        (s, auth, callable, child)
+    }
+
+    fn accept_fresh() -> Box<dyn Fn(&str) -> bool + Send + Sync> {
+        Box::new(|t: &str| t.contains('.') && token_is_fresh(t, now_ms()) && !t.is_empty())
+    }
+
+    #[test]
+    fn freshness_uses_jwt_exp_with_skew() {
+        let now = now_ms();
+        assert!(token_is_fresh(&jwt(now + 3_600_000, "a"), now));
+        assert!(!token_is_fresh(&jwt(now - 1, "a"), now));
+        assert!(!token_is_fresh(&jwt(now + 60_000, "a"), now), "inside skew window");
+        assert!(token_is_fresh("opaque-token", now));
+        assert!(!token_is_fresh("", now));
+    }
+
+    #[tokio::test]
+    async fn expired_persisted_token_is_refreshed_before_delete_child() {
+        // The bug: a token persisted 1.5 h earlier was sent as-is and the callable answered 401.
+        let (s, auth, callable, child) = session("nEOH", jwt(now_ms() - 5_400_000, "old"), 0, accept_fresh());
+        s.remove_child_synced(&child).await.unwrap();
+        assert_eq!(auth.calls.load(Ordering::SeqCst), 1);
+        let calls = callable.calls.lock().clone();
+        assert_eq!(calls.len(), 1, "no wasted call with the stale token");
+        assert_eq!(calls[0].0, "deleteChild");
+        assert!(!s.inner.lock().children.contains_key(&child));
+    }
+
+    #[tokio::test]
+    async fn server_401_triggers_one_refresh_and_retry() {
+        // Token looks valid locally but was revoked server-side.
+        let revoked = jwt(now_ms() + 3_600_000, "revoked");
+        let bad = revoked.clone();
+        let (s, auth, callable, child) = session("nEOH", revoked, 0, Box::new(move |t: &str| t != bad));
+        s.remove_child_synced(&child).await.unwrap();
+        assert_eq!(auth.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(callable.calls.lock().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn rejected_refresh_reports_session_expired_and_rolls_back() {
+        let (s, _a, callable, child) = session("nEOH", jwt(now_ms() - 1, "old"), 1, accept_fresh());
+        let err = s.remove_child_synced(&child).await.unwrap_err();
+        assert!(matches!(&err, AppError::Auth(m) if m == SESSION_EXPIRED), "{err:?}");
+        assert!(callable.calls.lock().is_empty());
+        assert!(s.inner.lock().children.contains_key(&child), "local change rolled back");
+    }
+
+    #[tokio::test]
+    async fn refresh_outage_is_a_network_error_not_session_expired() {
+        let (s, _a, _c, child) = session("nEOH", jwt(now_ms() - 1, "old"), 2, accept_fresh());
+        let err = s.remove_child_synced(&child).await.unwrap_err();
+        assert!(matches!(err, AppError::Network(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn every_synced_write_survives_an_expired_token() {
+        let (s, auth, callable, child) = session("nEOH", jwt(now_ms() - 1, "old"), 0, accept_fresh());
+        let policy = s.inner.lock().children[&child].policy.clone();
+        s.update_policy_synced(&child, policy).await.unwrap();
+        s.grant_bonus_synced(&child, 15).await.unwrap();
+        s.update_app_rules_synced(&child, vec![]).await.unwrap();
+        s.unpair_device_synced(&child).await.unwrap();
+        s.set_notification_prefs_synced(NotificationPrefs::default()).await.unwrap();
+        s.reset_pin_synced("4829").await.unwrap();
+        s.add_child_synced("Second", "7_to_9").await.unwrap();
+        s.remove_child_synced(&child).await.unwrap();
+        s.family_insights().await.unwrap();
+        s.delete_family_synced().await.unwrap();
+        assert_eq!(auth.calls.load(Ordering::SeqCst), 1, "token refreshed once, then reused");
+        assert!(callable.calls.lock().iter().all(|(_, t)| token_is_fresh(t, now_ms())));
+    }
+
+    #[tokio::test]
+    async fn dev_tester_uid_stays_local_without_token_traffic() {
+        let (s, auth, callable, child) = session("tester-abc", String::new(), 0, accept_fresh());
+        s.remove_child_synced(&child).await.unwrap();
+        assert_eq!(auth.calls.load(Ordering::SeqCst), 0);
+        assert!(callable.calls.lock().is_empty());
     }
 }

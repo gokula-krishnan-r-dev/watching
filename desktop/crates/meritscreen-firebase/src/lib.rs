@@ -17,6 +17,7 @@ pub use child_sync::{
     app_rule_from_value, policy_from_value, to_firestore_fields, ChildRemoteClient, DeviceIds, DeviceStatus, PolicyBundle, QuizAttemptUpload,
     SkillStateUpload, UsageDayUpload,
 };
+pub mod token;
 pub use error::{FirebaseError, FirebaseResult};
 pub use mock_sync::MockChildRemoteClient;
 pub use rest::{FirebaseConfig, RestAuthClient, RestCallableClient, RestFirestoreClient};

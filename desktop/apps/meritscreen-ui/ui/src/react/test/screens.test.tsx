@@ -118,3 +118,12 @@ describe("ChildPinMenuScreen", () => {
     expect(await screen.findByText(/incorrect pin/i)).toBeInTheDocument();
   });
 });
+
+import { friendlyError, isSessionExpired, SESSION_EXPIRED_MSG } from "../lib/errors";
+describe("session expiry errors", () => {
+  it("only the backend's post-refresh message triggers sign-in", () => {
+    expect(isSessionExpired(`command parent_remove_child: ${SESSION_EXPIRED_MSG}`)).toBe(true);
+    expect(isSessionExpired("Can’t reach the server.")).toBe(false);
+    expect(friendlyError("Unauthenticated")).toBe(SESSION_EXPIRED_MSG);
+  });
+});

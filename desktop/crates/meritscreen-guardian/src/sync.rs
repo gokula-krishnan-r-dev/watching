@@ -71,11 +71,15 @@ impl TokenCache {
         auth: Option<&Arc<dyn AuthClient>>,
         store: &SecretStore,
     ) -> Option<String> {
-        if let Some(t) = self.tokens.lock().as_ref() {
+        use meritscreen_firebase::token::{now_ms, token_is_fresh};
+        // Cached / stored tokens expire after an hour: only reuse them while fresh.
+        if let Some(t) = self.tokens.lock().as_ref().filter(|t| token_is_fresh(&t.id_token, now_ms())) {
             return Some(t.id_token.clone());
         }
         if let Ok(id) = store.get(accounts::CHILD_ID_TOKEN) {
-            return Some(id.as_str().to_string());
+            if token_is_fresh(id.as_str(), now_ms()) {
+                return Some(id.as_str().to_string());
+            }
         }
         let refresh = store.get(accounts::CHILD_REFRESH).ok()?;
         let Some(auth) = auth else {
