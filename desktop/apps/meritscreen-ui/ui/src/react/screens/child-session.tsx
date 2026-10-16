@@ -298,16 +298,8 @@ function Launcher({ bridge, st, autoMinimize, onPin, onRefresh }: { bridge: AppB
           Use your allowed apps as usual. Every {st.blockDurationMinutes || "few"} minutes a short quiz appears — pass it to keep going.
         </p>
         {autostart != null && (
-          <Switch
-            checked={autostart}
-            onCheckedChange={(v) => {
-              bridge.invoke<boolean>("set_autostart", { enabled: v }).then(
-                (r) => setAutostart(r),
-                (e) => bridge.toast(friendlyError(e), "error"),
-              );
-            }}
-            label="Start MeritScreen when the computer starts"
-          />
+          // Read-only for the child: changing start-up behaviour is a parent action (PIN menu / parent device).
+          <p className="m-0 text-xs text-muted-foreground">Starts automatically with the computer: {autostart ? "on" : "off"}</p>
         )}
       </Card>
 

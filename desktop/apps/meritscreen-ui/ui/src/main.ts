@@ -20,6 +20,11 @@ import {
   RoleSelectScreen,
   mountScreen,
   unmountScreen,
+  mountAux,
+  unmountAux,
+  TrayPopover,
+  ShieldOverlay,
+  type TrayActions,
   type AppBridge,
 } from "./react";
 
@@ -128,11 +133,6 @@ interface ChildUiState {
 
 
 
-interface ParentProfile {
-  uid: string;
-  email: string;
-  familyId: string | null;
-}
 
 interface ChildCard {
   childId: string;
@@ -145,55 +145,10 @@ interface ChildCard {
   quizMode: string;
 }
 
-interface ChildPolicy {
-  quizMode: string;
-  quizIntervalMinutes: number;
-  allowRetryDuringCooldown: boolean;
-  dailyCeilingMinutes: number | null;
-  questionsPerQuiz: number;
-  passScorePercent: number;
-  rewardsEnabled: boolean;
-  weekendBonusEnabled: boolean;
-  extraMinutesOnPass: number;
-  defaultBlockMinutes: number;
-  defaultCooldownMinutes: number;
-  emergencyApps: string[];
-  paused: boolean;
-}
 
-interface InventoryApp {
-  appId: string;
-  label: string;
-  allowed: boolean;
-}
 
-interface DeviceEnforcementStatus {
-  guardianState: string;
-  enforcementTier: string;
-  tamperFlags: string[];
-  degradedMessage: string | null;
-  strictAvailable: boolean;
-  installedApps: InventoryApp[];
-}
 
-interface AppRule {
-  appId: string;
-  packageOrBundleId: string;
-  displayName: string;
-  allowed: boolean;
-  blockMinutes: number;
-  grantOnPassMinutes: number;
-  cooldownMinutes: number;
-  isEmergency: boolean;
-}
 
-interface ChildDetail {
-  card: ChildCard;
-  policy: ChildPolicy;
-  appRules: AppRule[];
-  failLockScope: string;
-  enforcement: DeviceEnforcementStatus | null;
-}
 
 
 interface UiStateDto<T> {
@@ -274,30 +229,9 @@ async function loadHostFlags(): Promise<void> {
   }
 }
 
-function formatAgeBand(ageBand: string): string {
-  if (!ageBand) return "Elementary";
-  if (ageBand.includes("4_to_6") || ageBand === "4_to_6") return "Ages 4–6";
-  if (ageBand.includes("7_to_9") || ageBand === "7_to_9") return "Ages 7–9";
-  if (ageBand.includes("10_to_12") || ageBand === "10_to_12") return "Ages 10–12";
-  if (ageBand.includes("13") || ageBand === "13_plus") return "Ages 13+";
-  return ageBand.replace(/_/g, " ").replace("to", "–");
-}
 
 
-function formatTimer(totalSec: number): string {
-  const clean = Math.max(0, Math.floor(totalSec));
-  const mins = Math.floor(clean / 60);
-  const secs = clean % 60;
-  return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
-}
 
-let trayChildTicker: number | null = null;
-function clearTrayChildTicker(): void {
-  if (trayChildTicker !== null) {
-    window.clearInterval(trayChildTicker);
-    trayChildTicker = null;
-  }
-}
 
 
 function showToast(message: string, type: "success" | "info" | "error" = "success", durationMs = 3200): void {
@@ -368,12 +302,10 @@ function toggleTrayPreviewModal(forceState?: boolean): void {
   const isShown = modal.style.display !== "none";
   const next = forceState !== undefined ? forceState : !isShown;
   modal.style.display = next ? "flex" : "none";
-  if (next) {
-    const target = document.getElementById("tray-popover-modal-content");
-    if (target) {
-      void renderTrayPopover(undefined, target);
-    }
-  }
+  const target = document.getElementById("tray-popover-modal-content");
+  if (!target) return;
+  if (next) void renderTrayPopover(undefined, target);
+  else unmountAux(target);
 }
 
 // Global modal triggers
@@ -400,7 +332,7 @@ window.addEventListener("keydown", (e: KeyboardEvent) => {
   if (e.key === "Escape") {
     const trayModal = document.getElementById("tray-preview-modal");
     if (trayModal && trayModal.style.display !== "none") {
-      trayModal.style.display = "none";
+      toggleTrayPreviewModal(false);
       return;
     }
     if (isTrayWindow) {
@@ -747,13 +679,6 @@ function renderAddChild(): void {
   });
 }
 
-function formatMinutes(mins: number): string {
-  if (mins <= 0) return "0 min";
-  if (mins < 60) return `${mins} min`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m === 0 ? `${h}h` : `${h}h ${m}m`;
-}
 
 
 async function renderDashboard(): Promise<void> {
@@ -763,16 +688,6 @@ async function renderDashboard(): Promise<void> {
   mountScreen(view, createElement(DashboardScreen, { bridge: appBridge() }));
 }
 
-function getChildAvatarEmoji(ageBand: string, name: string): string {
-  if (ageBand.includes("4_to_6")) return "🦊";
-  if (ageBand.includes("7_to_9")) return "🦁";
-  if (ageBand.includes("10_to_12")) return "🚀";
-  if (ageBand.includes("13_to_15")) return "🎨";
-  if (ageBand.includes("16_to_18")) return "⚡";
-  const emojis = ["🌟", "🦁", "🦊", "🚀", "🐼", "🐬", "🦉", "🦄"];
-  const charCode = name.charCodeAt(0) || 0;
-  return emojis[charCode % emojis.length];
-}
 
 
 async function renderChildDetail(childId: string): Promise<void> {
@@ -847,769 +762,29 @@ async function renderDeleteFamily(): Promise<void> {
   mountScreen(view, createElement(DeleteFamilyScreen, { bridge: appBridge() }));
 }
 
-function renderChildTrayCard(container: HTMLElement, st: ChildUiState, targetEl?: HTMLElement): void {
-  clearTrayChildTicker();
 
-  const activeApp = st.activeAppName || "Desktop Active";
-  const initSec = st.secondsRemainingBlock ?? st.minutesRemainingBlock * 60;
-  const usedToday = st.minutesUsedToday;
-  const blockMins = st.blockDurationMinutes || 50;
-  const totalBlockSec = blockMins * 60;
-  const pctBlock = Math.min(100, Math.max(0, Math.round(((totalBlockSec - initSec) / totalBlockSec) * 100)));
-
-  container.innerHTML = `
-    <div class="tray-popover-card">
-      <div class="tray-header-row">
-        <div class="tray-brand-wrap">
-          <div class="tray-pulse-dot"></div>
-          <span class="tray-brand-title">Watching Protected</span>
-        </div>
-        <div class="tray-header-actions">
-          <button type="button" class="tray-icon-btn" id="child-tray-close-btn" title="Close" aria-label="Close tray popover">✕</button>
-        </div>
-      </div>
-
-      <div class="child-tray-hero">
-        <div class="child-tray-avatar">👦</div>
-        <div class="child-tray-info">
-          <div class="child-tray-name">${escapeHtml(st.childName)}</div>
-          <div class="child-tray-status">
-            <span>●</span> Active Background Protection
-          </div>
-        </div>
-      </div>
-
-      <div class="child-tray-countdown-hero">
-        <div class="child-tray-countdown-label">
-          <span>MICRO-QUIZ CADENCE</span>
-          <span class="child-tray-badge">⚡ Live</span>
-        </div>
-        <div class="child-tray-timer-display" id="child-tray-timer">
-          ${formatTimer(initSec)}
-        </div>
-        <div class="tray-meter-bar">
-          <div class="tray-meter-fill" id="child-tray-meter-fill" style="width: ${pctBlock}%; background: var(--ms-primary);"></div>
-        </div>
-        <div class="child-tray-timer-sub">
-          <span>${blockMins}m focus block</span>
-          <span id="child-tray-used-today">${usedToday}m used today</span>
-        </div>
-      </div>
-
-      <div class="child-stat-card" style="padding: 10px 12px; margin: 4px 0;">
-        <div class="label" style="font-size: 0.72rem; letter-spacing: 0.04em;">CURRENTLY MONITORED APP</div>
-        <div class="val" style="font-size: 1.05rem; gap: 8px;">
-          <span>🌐</span>
-          <span id="child-tray-active-app">${escapeHtml(activeApp)}</span>
-        </div>
-        <div style="font-size: 0.74rem; color: var(--ms-on-surface-variant); margin-top: 2px;">
-          Second-by-second active-window detection
-        </div>
-      </div>
-
-      <div class="child-tray-autostart-card" id="child-tray-autostart-card">
-        <div class="child-tray-autostart-text">
-          <span class="child-tray-autostart-icon">🚀</span>
-          <div>
-            <div class="child-tray-autostart-title">Auto-Start on Boot</div>
-            <div class="child-tray-autostart-subtitle" id="child-tray-autostart-desc">Loading startup setting…</div>
-          </div>
-        </div>
-        <button type="button" class="btn btn-secondary" id="btn-tray-autostart-toggle" style="padding: 4px 10px; font-size: 0.76rem;">
-          Toggle
-        </button>
-      </div>
-
-      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
-        <button type="button" class="child-tray-primary-btn" id="btn-child-tray-quiz">
-          <span>📝</span> <span>Take Micro-Quiz Now (+15m)</span>
-        </button>
-        <button type="button" class="child-tray-secondary-btn" id="btn-child-tray-show-main">
-          <span>🖥️</span> <span>Open Desktop Protection View</span>
-        </button>
-        <button type="button" class="child-tray-subtle-btn" id="btn-child-tray-pin">
-          <span>⚙️</span> <span>Parent Safety PIN & Settings</span>
-        </button>
-      </div>
-
-      <div class="tray-footer-row">
-        <span>Watching Sanctuary v0.1.0</span>
-        <button type="button" class="tray-link-btn" id="btn-child-tray-quit">Exit</button>
-      </div>
-
-      <!-- Child Tray Exit Parent PIN Modal -->
-      <div id="child-tray-exit-modal" class="quiz-pin-modal-backdrop" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="tray-exit-title">
-        <div class="quiz-pin-modal-box">
-          <div style="font-size:1.8rem;margin-bottom:6px;">🔒</div>
-          <h2 id="tray-exit-title" style="margin:0 0 6px 0;font-size:1.25rem;color:#ffffff;">Parent PIN Required</h2>
-          <p style="margin:0 0 14px 0;font-size:0.84rem;color:#94a3b8;line-height:1.45;">
-            Watching is protecting this device. Enter your 4-digit Parent PIN (Default: 1234) to exit background monitoring.
-          </p>
-          <input type="password" id="input-tray-exit-pin" class="quiz-pin-input" maxlength="4" inputmode="numeric" placeholder="••••" autocomplete="off" />
-          <p id="tray-exit-pin-error" style="color:#ef4444;font-size:0.82rem;min-height:16px;margin:2px 0 10px;"></p>
-          <div style="display:flex;gap:10px;justify-content:center;">
-            <button class="btn btn-secondary" id="btn-tray-exit-cancel" type="button" style="padding:7px 16px;font-size:0.85rem;">Cancel</button>
-            <button class="btn btn-primary" id="btn-tray-exit-confirm" type="button" style="padding:7px 16px;font-size:0.85rem;background:#dc2626;border-color:#dc2626;">Exit Application</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-
-  // Autostart status and toggle
-  let autostartEnabled = false;
-  const updateAutostartUi = (enabled: boolean) => {
-    autostartEnabled = enabled;
-    const desc = document.getElementById("child-tray-autostart-desc");
-    const btn = document.getElementById("btn-tray-autostart-toggle");
-    if (desc) desc.textContent = enabled ? "Runs on PC login & boot (Active)" : "Launch on startup disabled";
-    if (btn) {
-      btn.textContent = enabled ? "Enabled ✓" : "Enable";
-      btn.style.color = enabled ? "var(--ms-success, #10b981)" : "inherit";
-    }
-  };
-
-  void (async () => {
-    try {
-      const isEnabled = await invoke<boolean>("get_autostart_status");
-      updateAutostartUi(isEnabled);
-    } catch {
-      updateAutostartUi(false);
-    }
-  })();
-
-  document.getElementById("btn-tray-autostart-toggle")?.addEventListener("click", () => {
-    void (async () => {
-      try {
-        const next = !autostartEnabled;
-        const res = await invoke<boolean>("set_autostart", { enabled: next });
-        updateAutostartUi(res);
-        showToast(res ? "Auto-start enabled on boot." : "Auto-start disabled.", "info");
-      } catch (e) {
-        showToast(String(e), "error");
-      }
-    })();
-  });
-
-  // Start high-performance 1-second ticker to sync countdown smoothly in real-time
-  trayChildTicker = window.setInterval(() => {
-    void (async () => {
-      try {
-        const fresh = await invoke<ChildUiState>("child_ui_state");
-        if (!fresh.paired) {
-          clearTrayChildTicker();
-          void renderTrayPopover();
-          return;
-        }
-        const freshSec = fresh.secondsRemainingBlock ?? fresh.minutesRemainingBlock * 60;
-        const timerEl = document.getElementById("child-tray-timer");
-        if (timerEl) {
-          timerEl.textContent = formatTimer(freshSec);
-        }
-        const appEl = document.getElementById("child-tray-active-app");
-        if (appEl && fresh.activeAppName) {
-          appEl.textContent = fresh.activeAppName;
-        }
-        const meterEl = document.getElementById("child-tray-meter-fill");
-        if (meterEl) {
-          const freshMins = fresh.blockDurationMinutes || 50;
-          const freshTotalSec = freshMins * 60;
-          const freshPct = Math.min(100, Math.max(0, Math.round(((freshTotalSec - freshSec) / freshTotalSec) * 100)));
-          meterEl.style.width = `${freshPct}%`;
-        }
-        const usedEl = document.getElementById("child-tray-used-today");
-        if (usedEl) {
-          usedEl.textContent = `${fresh.minutesUsedToday}m used today`;
-        }
-      } catch {
-        // Ignored if window closed / suspended
-      }
-    })();
-  }, 1000);
-
-  document.getElementById("child-tray-close-btn")?.addEventListener("click", () => {
-    clearTrayChildTicker();
-    if (targetEl) {
-      toggleTrayPreviewModal(false);
-    } else {
-      try {
-        void invoke("hide_tray_popover");
-      } catch {}
-    }
-  });
-
-  document.getElementById("btn-child-tray-quiz")?.addEventListener("click", () => {
-    clearTrayChildTicker();
-    if (targetEl) toggleTrayPreviewModal(false);
-    void (async () => {
-      try {
-        await invoke("show_main_window");
-        await invoke("child_force_quiz");
-        await navigate({ name: "child" });
-        await invoke("hide_tray_popover");
-      } catch {}
-    })();
-  });
-
-  document.getElementById("btn-child-tray-show-main")?.addEventListener("click", () => {
-    clearTrayChildTicker();
-    if (targetEl) toggleTrayPreviewModal(false);
-    void (async () => {
-      try {
-        await invoke("show_main_window");
-        await navigate({ name: "child" });
-        await invoke("hide_tray_popover");
-      } catch {}
-    })();
-  });
-
-  document.getElementById("btn-child-tray-pin")?.addEventListener("click", () => {
-    clearTrayChildTicker();
-    if (targetEl) toggleTrayPreviewModal(false);
-    void (async () => {
-      try {
-        await invoke("show_main_window");
-        await invoke("child_open_pin_menu");
-        await navigate({ name: "child" });
-        await invoke("hide_tray_popover");
-      } catch {}
-    })();
-  });
-
-  const exitModal = document.getElementById("child-tray-exit-modal");
-  const exitPinInput = document.getElementById("input-tray-exit-pin") as HTMLInputElement | null;
-  const exitPinError = document.getElementById("tray-exit-pin-error");
-
-  document.getElementById("btn-child-tray-quit")?.addEventListener("click", () => {
-    if (exitModal) {
-      exitModal.style.display = "flex";
-      if (exitPinInput) {
-        exitPinInput.value = "";
-        exitPinInput.disabled = false;
-        exitPinInput.focus();
-      }
-      if (exitPinError) exitPinError.textContent = "";
-    }
-  });
-
-  document.getElementById("btn-tray-exit-cancel")?.addEventListener("click", () => {
-    if (exitModal) exitModal.style.display = "none";
-  });
-
-  const confirmExitWithPin = () => {
-    void (async () => {
-      const pin = exitPinInput?.value.trim() || "";
-      if (pin.length !== 4) {
-        if (exitPinError) exitPinError.textContent = "Please enter the 4-digit Parent PIN.";
-        return;
-      }
-      if (exitPinError) exitPinError.textContent = "";
-      if (exitPinInput) exitPinInput.disabled = true;
-      try {
-        await invoke("child_exit_with_pin", { pin });
-      } catch (err) {
-        if (exitPinInput) {
-          exitPinInput.disabled = false;
-          exitPinInput.focus();
-        }
-        if (exitPinError) {
-          exitPinError.textContent = friendlyError(err) || "Incorrect Parent PIN. Exit is blocked.";
-        }
-      }
-    })();
-  };
-
-  document.getElementById("btn-tray-exit-confirm")?.addEventListener("click", confirmExitWithPin);
-  exitPinInput?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      confirmExitWithPin();
-    } else if (e.key === "Escape") {
-      if (exitModal) exitModal.style.display = "none";
-    }
-  });
-}
-
+let trayReloadKey = 0;
 async function renderTrayPopover(activeChildId?: string, targetEl?: HTMLElement): Promise<void> {
-  clearTrayChildTicker();
   const container = targetEl || view;
   if (!container) return;
-
-  if (!targetEl) {
-    updateBreadcrumbs([]);
-  }
-
-  container.innerHTML = `
-    <div class="tray-popover-card">
-      <div style="padding: 24px; text-align: center; color: var(--ms-on-surface-variant); font-size: 0.88rem;">
-        <span class="btn-spinner" style="display: inline-block; margin-bottom: 8px;"></span>
-        <div>Loading sanctuary telemetry…</div>
-      </div>
-    </div>
-  `;
-
-  try {
-    const childSt = await invoke<ChildUiState>("child_ui_state").catch(() => null);
-    if (childSt && childSt.paired) {
-      renderChildTrayCard(container, childSt, targetEl);
-      return;
-    }
-
-    const dash = await invoke<
-      UiStateDto<{ profile: ParentProfile; children: ChildCard[]; maxChildren: number }>
-    >("parent_dashboard");
-
-    const children = dash.data?.children || [];
-    if (!children.length) {
-      container.innerHTML = `
-        <div class="tray-popover-card">
-          <div class="tray-header-row">
-            <div class="tray-brand-wrap">
-              <div class="tray-pulse-dot paused"></div>
-              <span class="tray-brand-title">Watching Sanctuary</span>
-            </div>
-            <div class="tray-header-actions">
-              <button type="button" class="tray-icon-btn" id="tray-close-btn" title="Close">✕</button>
-            </div>
-          </div>
-          <div style="padding: 28px 16px; text-align: center;">
-            <div style="font-size: 2rem; margin-bottom: 6px;">🛡️</div>
-            <strong style="display: block; font-size: 0.95rem; color: var(--ms-on-surface);">No Child Linked Yet</strong>
-            <p style="font-size: 0.8rem; color: var(--ms-on-surface-variant); margin: 6px 0 14px; line-height: 1.4;">
-              Pair a computer or create a child profile to monitor usage and apply rules.
-            </p>
-            <button type="button" class="tray-open-dash-btn" id="btn-tray-open-dashboard">
-              Open Setup Dashboard
-            </button>
-          </div>
-        </div>
-      `;
-
-      document.getElementById("tray-close-btn")?.addEventListener("click", () => {
-        if (targetEl) {
-          toggleTrayPreviewModal(false);
-        } else {
-          try {
-            void invoke("hide_tray_popover");
-          } catch {}
-        }
-      });
-
-      document.getElementById("btn-tray-open-dashboard")?.addEventListener("click", () => {
-        if (targetEl) {
-          toggleTrayPreviewModal(false);
-        }
-        try {
-          void invoke("show_main_window");
-        } catch {}
-        void navigate({ name: "role" });
-      });
-      return;
-    }
-
-    const activeChild =
-      (activeChildId ? children.find((c) => c.childId === activeChildId) : null) || children[0];
-    const detail = await invoke<ChildDetail>("parent_child_detail", { childId: activeChild.childId });
-
-    const childName = activeChild.displayName;
-    const avatarEmoji = getChildAvatarEmoji(activeChild.ageBand, childName);
-    const ageBandFormatted = formatAgeBand(activeChild.ageBand);
-    const minutesUsed = detail.card.minutesUsedToday;
-    const ceiling = detail.policy.dailyCeilingMinutes ?? 120;
-    const isPaused = detail.policy.paused;
-    const minutesLeft = ceiling > 0 ? Math.max(0, ceiling - minutesUsed) : null;
-    const pctUsed = ceiling > 0 ? Math.min(100, Math.round((minutesUsed / ceiling) * 100)) : 0;
-    const passRate = detail.policy.passScorePercent ?? 70;
-    const qCount = detail.policy.questionsPerQuiz ?? 3;
-    const appRules = detail.appRules || [];
-
-    const allowedCount = appRules.filter((r) => r.allowed).length;
-
-    container.innerHTML = `
-      <div class="tray-popover-card">
-        <!-- 1. Header -->
-        <div class="tray-header-row">
-          <div class="tray-brand-wrap">
-            <div class="tray-pulse-dot ${isPaused ? "paused" : ""}"></div>
-            <span class="tray-brand-title">Watching Sanctuary</span>
-          </div>
-          <div class="tray-header-actions">
-            <button type="button" class="tray-icon-btn" id="tray-refresh-btn" title="Refresh Telemetry">🔄</button>
-            <button type="button" class="tray-icon-btn" id="tray-close-btn" title="Close Popover (Esc)">✕</button>
-          </div>
-        </div>
-
-        <!-- 2. Multi-Child Tabs (if >1 child) -->
-        ${
-          children.length > 1
-            ? `
-          <div class="tray-child-tabs" role="tablist">
-            ${children
-              .map(
-                (c) => `
-              <button type="button" class="tray-child-tab ${c.childId === activeChild.childId ? "active" : ""}" data-tray-child="${escapeHtml(c.childId)}">
-                <span>${getChildAvatarEmoji(c.ageBand, c.displayName)}</span>
-                <span>${escapeHtml(c.displayName)}</span>
-                <span class="tray-child-status-dot ${c.minutesUsedToday >= ceiling ? "paused" : ""}"></span>
-              </button>
-            `,
-              )
-              .join("")}
-          </div>
-        `
-            : ""
-        }
-
-        <!-- 3. Active Child Overview & Time Gauge -->
-        <div class="tray-hero-box">
-          <div class="tray-hero-profile-row">
-            <div class="tray-profile-info">
-              <div class="tray-profile-avatar">${avatarEmoji}</div>
-              <div class="tray-profile-names">
-                <span class="tray-profile-title">${escapeHtml(childName)}</span>
-                <span class="tray-profile-sub">${escapeHtml(ageBandFormatted)}</span>
-              </div>
-            </div>
-            <span class="pill-badge ${isPaused ? "" : "accent"}" style="font-size: 0.72rem;">
-              ${isPaused ? "⏸️ Paused" : minutesLeft !== null && minutesLeft <= 0 ? "⏱️ Ceiling Hit" : "🛡️ Protected"}
-            </span>
-          </div>
-
-          <!-- Time Allowance & Gauge -->
-          <div class="tray-gauge-wrap">
-            <div class="tray-gauge-labels">
-              <div class="tray-time-display">
-                <span class="tray-time-left ${isPaused ? "warning" : minutesLeft !== null && minutesLeft <= 15 ? "danger" : ""}">
-                  ${minutesLeft !== null ? `${formatMinutes(minutesLeft)} Left` : "Unlimited"}
-                </span>
-                <span class="tray-time-used-sub">
-                  ${formatMinutes(minutesUsed)} used of ${ceiling > 0 ? formatMinutes(ceiling) : "∞"}
-                </span>
-              </div>
-              <div class="tray-limit-stepper" role="group" aria-label="Adjust daily limit">
-                <button type="button" class="tray-stepper-btn" id="btn-tray-limit-minus" title="Decrease daily ceiling (–15m)" aria-label="Decrease daily ceiling by 15m">–15m</button>
-                <button type="button" class="tray-stepper-btn" id="btn-tray-limit-plus" title="Increase daily ceiling (+15m)" aria-label="Increase daily ceiling by 15m">+15m</button>
-              </div>
-            </div>
-            <div class="tray-progress-track">
-              <div class="tray-progress-fill ${pctUsed >= 90 ? "danger" : pctUsed >= 75 ? "warning" : ""}" style="width: ${ceiling > 0 ? pctUsed : 10}%;"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 4. Quick Parental Controls Actions -->
-        <div class="tray-actions-grid">
-          <button type="button" class="tray-action-btn ${isPaused ? "primary" : "warning"}" id="btn-tray-pause">
-            ${isPaused ? "▶ Resume Screen" : "⏸ Pause Screen"}
-          </button>
-          <button type="button" class="tray-action-btn" id="btn-tray-bonus-15">
-            ⭐ +15m Bonus
-          </button>
-          <button type="button" class="tray-action-btn" id="btn-tray-bonus-30">
-            ⭐ +30m Bonus
-          </button>
-          <button type="button" class="tray-action-btn" id="btn-tray-emergency">
-            🚨 Emergency Unlock
-          </button>
-        </div>
-
-        <!-- 5. Monitored App Rules Quick View -->
-        <div class="tray-section-title-row">
-          <span class="tray-section-title">Quick App Firewall</span>
-          <span class="pill-badge" style="font-size: 0.68rem; padding: 1px 6px;">${allowedCount} Allowed</span>
-        </div>
-
-        <div class="tray-apps-list">
-          ${
-            appRules
-              .slice(0, 4)
-              .map(
-                (r) => `
-            <div class="tray-app-row">
-              <div class="tray-app-left">
-                <div class="tray-app-icon">${escapeHtml(r.displayName.slice(0, 1).toUpperCase())}</div>
-                <span class="tray-app-name" title="${escapeHtml(r.displayName)}">${escapeHtml(r.displayName || r.appId)}</span>
-              </div>
-              <button type="button" class="tray-app-toggle ${r.allowed ? "allowed" : "blocked"}" data-tray-toggle-app="${escapeHtml(r.appId)}" ${r.isEmergency ? "disabled" : ""}>
-                ${r.allowed ? "✓ Allowed" : "✗ Blocked"}
-              </button>
-            </div>
-          `,
-              )
-              .join("") ||
-            `
-            <div style="text-align: center; padding: 10px; font-size: 0.78rem; color: var(--ms-on-surface-variant);">
-              No monitored applications configured yet.
-            </div>
-          `
-          }
-        </div>
-
-        <!-- 6. Cognitive & Checkpoint Telemetry Row -->
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--ms-surface-low); border-radius: 8px; border: 1px solid var(--ms-outline-subtle); font-size: 0.76rem;">
-          <span>🧠 <strong>${qCount}-Q Micro-Quiz</strong> (${passRate}% pass mark)</span>
-          <span class="muted">Cooldown: ${detail.policy.defaultCooldownMinutes ?? 5}m</span>
-        </div>
-
-        <!-- 7. Footer Navigation & System Controls -->
-        <div class="tray-footer-row">
-          <button type="button" class="tray-open-dash-btn" id="btn-tray-open-dashboard">
-            <span>🖥️ Open Full Dashboard</span>
-            <span>→</span>
-          </button>
-          <div class="tray-footer-links">
-            <button type="button" class="tray-footer-link" id="btn-tray-settings">⚙️ Settings</button>
-            <span style="opacity: 0.4;">•</span>
-            <button type="button" class="tray-footer-link" id="btn-tray-reports">📊 Reports</button>
-            <span style="opacity: 0.4;">•</span>
-            <button type="button" class="tray-footer-link danger" id="btn-tray-quit">Quit Watching</button>
-          </div>
-        </div>
-      </div>
-    `;
-
-    // Handlers
-    document.getElementById("tray-refresh-btn")?.addEventListener("click", () => {
-      showToast("Telemetry refreshed", "info", 1400);
-      void renderTrayPopover(activeChild.childId, targetEl);
-    });
-
-    document.getElementById("tray-close-btn")?.addEventListener("click", () => {
-      if (targetEl) {
-        toggleTrayPreviewModal(false);
-      } else {
-        try {
-          void invoke("hide_tray_popover");
-        } catch {}
-      }
-    });
-
-    container.querySelectorAll<HTMLButtonElement>("[data-tray-child]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const id = btn.dataset.trayChild;
-        if (id) {
-          void renderTrayPopover(id, targetEl);
-        }
-      });
-    });
-
-    // Pause / Resume Screen Time
-    document.getElementById("btn-tray-pause")?.addEventListener("click", () => {
-      void (async () => {
-        const updatedPolicy: ChildPolicy = {
-          ...detail.policy,
-          paused: !isPaused,
-        };
-        try {
-          await invoke("parent_update_policy", { childId: activeChild.childId, policy: updatedPolicy });
-          showToast(
-            isPaused
-              ? `Screen time resumed for ${childName}!`
-              : `Screen time paused for ${childName}!`,
-            isPaused ? "success" : "info",
-          );
-          await renderTrayPopover(activeChild.childId, targetEl);
-        } catch (e) {
-          showToast(friendlyError(e), "error");
-        }
-      })();
-    });
-
-    // +15m Bonus
-    document.getElementById("btn-tray-bonus-15")?.addEventListener("click", () => {
-      void (async () => {
-        const newCeiling = (detail.policy.dailyCeilingMinutes ?? 120) + 15;
-        const updatedPolicy: ChildPolicy = {
-          ...detail.policy,
-          dailyCeilingMinutes: newCeiling,
-        };
-        try {
-          await invoke("parent_update_policy", { childId: activeChild.childId, policy: updatedPolicy });
-          showToast(`+15m bonus granted to ${childName}!`, "success");
-          await renderTrayPopover(activeChild.childId, targetEl);
-        } catch (e) {
-          showToast(friendlyError(e), "error");
-        }
-      })();
-    });
-
-    // +30m Bonus
-    document.getElementById("btn-tray-bonus-30")?.addEventListener("click", () => {
-      void (async () => {
-        const newCeiling = (detail.policy.dailyCeilingMinutes ?? 120) + 30;
-        const updatedPolicy: ChildPolicy = {
-          ...detail.policy,
-          dailyCeilingMinutes: newCeiling,
-        };
-        try {
-          await invoke("parent_update_policy", { childId: activeChild.childId, policy: updatedPolicy });
-          showToast(`+30m bonus granted to ${childName}!`, "success");
-          await renderTrayPopover(activeChild.childId, targetEl);
-        } catch (e) {
-          showToast(friendlyError(e), "error");
-        }
-      })();
-    });
-
-    // Limit adjustments (-15m / +15m)
-    document.getElementById("btn-tray-limit-minus")?.addEventListener("click", () => {
-      void (async () => {
-        const curCeiling = detail.policy.dailyCeilingMinutes ?? 120;
-        const newCeiling = Math.max(15, curCeiling - 15);
-        const updatedPolicy: ChildPolicy = {
-          ...detail.policy,
-          dailyCeilingMinutes: newCeiling,
-        };
-        try {
-          await invoke("parent_update_policy", { childId: activeChild.childId, policy: updatedPolicy });
-          showToast(`Daily limit set to ${formatMinutes(newCeiling)} for ${childName}`, "info", 1600);
-          await renderTrayPopover(activeChild.childId, targetEl);
-        } catch (e) {
-          showToast(friendlyError(e), "error");
-        }
-      })();
-    });
-
-    document.getElementById("btn-tray-limit-plus")?.addEventListener("click", () => {
-      void (async () => {
-        const curCeiling = detail.policy.dailyCeilingMinutes ?? 120;
-        const newCeiling = curCeiling + 15;
-        const updatedPolicy: ChildPolicy = {
-          ...detail.policy,
-          dailyCeilingMinutes: newCeiling,
-        };
-        try {
-          await invoke("parent_update_policy", { childId: activeChild.childId, policy: updatedPolicy });
-          showToast(`Daily limit increased to ${formatMinutes(newCeiling)} for ${childName}`, "success", 1600);
-          await renderTrayPopover(activeChild.childId, targetEl);
-        } catch (e) {
-          showToast(friendlyError(e), "error");
-        }
-      })();
-    });
-
-    // Emergency Unlock with Confirmation Dialog
-    document.getElementById("btn-tray-emergency")?.addEventListener("click", () => {
-      const confirmed = window.confirm(
-        `🚨 Activate Emergency Override for ${childName}?\n\nThis will immediately unpause all monitored apps and grant +60 minutes of unrestricted screen time.`
-      );
-      if (!confirmed) return;
-
-      void (async () => {
-        const updatedPolicy: ChildPolicy = {
-          ...detail.policy,
-          paused: false,
-          dailyCeilingMinutes: (detail.policy.dailyCeilingMinutes ?? 120) + 60,
-        };
-        try {
-          await invoke("parent_update_policy", { childId: activeChild.childId, policy: updatedPolicy });
-          showToast(`Emergency override active: +60m granted to ${childName}!`, "info");
-          await renderTrayPopover(activeChild.childId, targetEl);
-        } catch (e) {
-          showToast(friendlyError(e), "error");
-        }
-      })();
-    });
-
-    // App Firewall Toggle
-    container.querySelectorAll<HTMLButtonElement>("[data-tray-toggle-app]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        void (async () => {
-          const appId = btn.dataset.trayToggleApp;
-          const rule = appRules.find((r) => r.appId === appId);
-          if (rule && !rule.isEmergency) {
-            rule.allowed = !rule.allowed;
-            try {
-              await invoke("parent_update_app_rules", { childId: activeChild.childId, rules: appRules });
-              showToast(
-                `${rule.displayName || rule.appId}: ${rule.allowed ? "Allowed" : "Blocked"}`,
-                "success",
-                1800,
-              );
-              await renderTrayPopover(activeChild.childId, targetEl);
-            } catch (e) {
-              showToast(friendlyError(e), "error");
-            }
-          }
-        })();
-      });
-    });
-
-    // Open Dashboard Button
-    document.getElementById("btn-tray-open-dashboard")?.addEventListener("click", () => {
-      if (targetEl) {
-        toggleTrayPreviewModal(false);
-      }
-      try {
-        void invoke("show_main_window");
-      } catch {}
-      void navigate({ name: "child-detail", childId: activeChild.childId });
-    });
-
-    // Settings Link
-    document.getElementById("btn-tray-settings")?.addEventListener("click", () => {
-      if (targetEl) {
-        toggleTrayPreviewModal(false);
-      }
-      try {
-        void invoke("show_main_window");
-      } catch {}
-      void navigate({ name: "account" });
-    });
-
-    // Reports Link
-    document.getElementById("btn-tray-reports")?.addEventListener("click", () => {
-      if (targetEl) {
-        toggleTrayPreviewModal(false);
-      }
-      try {
-        void invoke("show_main_window");
-      } catch {}
-      void navigate({ name: "reports", childId: activeChild.childId });
-    });
-
-    // Quit Link
-    document.getElementById("btn-tray-quit")?.addEventListener("click", () => {
-      void (async () => {
-        try {
-          await invoke("quit_app");
-        } catch (err) {
-          showToast(String(err), "error");
-        }
-      })();
-    });
-  } catch (err) {
-    container.innerHTML = `
-      <div class="tray-popover-card">
-        <div class="tray-header-row">
-          <div class="tray-brand-wrap">
-            <div class="tray-pulse-dot paused"></div>
-            <span class="tray-brand-title">Watching Sanctuary</span>
-          </div>
-          <button type="button" class="tray-icon-btn" id="tray-close-btn" title="Close">✕</button>
-        </div>
-        <div style="padding: 24px 14px; text-align: center;">
-          <strong style="color: var(--ms-error); display: block; margin-bottom: 6px;">Connection Paused</strong>
-          <p style="font-size: 0.8rem; color: var(--ms-on-surface-variant); margin: 0 0 14px;">
-            ${escapeHtml(friendlyError(err))}
-          </p>
-          <button type="button" class="tray-open-dash-btn" id="btn-tray-retry">Retry Connection</button>
-        </div>
-      </div>
-    `;
-
-    document.getElementById("tray-close-btn")?.addEventListener("click", () => {
+  if (!targetEl) updateBreadcrumbs([]);
+  await ensureBootstrap();
+  const actions: TrayActions = {
+    close: () => {
       if (targetEl) toggleTrayPreviewModal(false);
-      else {
-        try {
-          void invoke("hide_tray_popover");
-        } catch {}
-      }
-    });
-
-    document.getElementById("btn-tray-retry")?.addEventListener("click", () => {
-      void renderTrayPopover(activeChildId, targetEl);
-    });
-  }
+      else void invoke("hide_tray_popover").catch(() => undefined);
+    },
+    openMain: async (next) => {
+      if (targetEl) toggleTrayPreviewModal(false);
+      await invoke("show_main_window").catch(() => undefined);
+      await navigate(next as Route);
+      if (!targetEl) await invoke("hide_tray_popover").catch(() => undefined);
+    },
+  };
+  trayReloadKey += 1;
+  const node = createElement(TrayPopover, { bridge: appBridge(), actions, initialChildId: activeChildId, reloadKey: trayReloadKey });
+  if (targetEl) mountAux(targetEl, node);
+  else mountScreen(container, node);
 }
 
 async function renderChild(): Promise<void> {
@@ -1654,22 +829,7 @@ function renderChildPairing(): void {
 function renderShieldOverlay(): void {
   if (!view) return;
   document.body.classList.add("is-shield-window");
-  view.innerHTML = `
-    <div class="screen-shield-container">
-      <div class="screen-shield-card">
-        <div class="shield-pulse-ring">
-          <img src="/logo.png" alt="Watching Shield Logo" onerror="this.src='/icons/icon.png'" />
-        </div>
-        <h1 class="shield-title">Screen Paused for Micro-Quiz</h1>
-        <p class="shield-subtitle">
-          Please complete the quiz on your main display to unlock all displays.
-        </p>
-        <div class="shield-badge">
-          <span>🛡️</span> <strong>Watching Desktop Guardian</strong>
-        </div>
-      </div>
-    </div>
-  `;
+  mountScreen(view, createElement(ShieldOverlay));
 }
 
 

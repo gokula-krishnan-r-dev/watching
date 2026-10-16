@@ -27,3 +27,25 @@ export function unmountScreen(): void {
     host = null;
   }
 }
+
+/* Auxiliary roots (e.g. the tray preview modal) live alongside the main screen root. */
+const aux = new Map<HTMLElement, Root>();
+
+export function mountAux(container: HTMLElement, node: React.ReactNode): void {
+  let r = aux.get(container);
+  if (!r || !container.querySelector(":scope > .ms-react-root")) {
+    r?.unmount();
+    container.innerHTML = "";
+    const el = document.createElement("div");
+    el.className = "ms-react-root";
+    container.appendChild(el);
+    r = createRoot(el);
+    aux.set(container, r);
+  }
+  r.render(<React.StrictMode>{node}</React.StrictMode>);
+}
+
+export function unmountAux(container: HTMLElement): void {
+  aux.get(container)?.unmount();
+  aux.delete(container);
+}

@@ -1,4 +1,4 @@
-export { mountScreen, unmountScreen } from "./mount";
+export { mountScreen, unmountScreen, mountAux, unmountAux } from "./mount";
 export type { AppBridge } from "./bridge";
 export { ParentAuthScreen } from "./screens/parent-auth";
 export { ChildPairingScreen } from "./screens/child-pairing";
@@ -13,3 +13,4 @@ export { ReportsScreen } from "./screens/reports";
 export { AccountScreen, NotificationsScreen, DeleteFamilyScreen } from "./screens/account";
 export { PairingScreen } from "./screens/pairing";
 export { ChildSessionScreen, SESSION_SCREENS } from "./screens/child-session";
+export { TrayPopover, ChildTrayCard, ShieldOverlay, type TrayActions } from "./screens/tray";
