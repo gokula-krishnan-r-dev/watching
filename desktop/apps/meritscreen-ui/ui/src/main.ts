@@ -6,6 +6,7 @@ import {
   ChildPairingScreen,
   ChildPinMenuScreen,
   ParentAuthScreen,
+  RoleSelectScreen,
   mountScreen,
   unmountScreen,
   type AppBridge,
@@ -846,112 +847,26 @@ async function renderRoleGate(): Promise<void> {
     await navigate({ name: "child" });
     return;
   }
-
-  view.innerHTML = `
-    <div class="hero">
-      <div style="display: flex; justify-content: center; margin-bottom: 6px;">
-        <span class="pill-badge accent">
-          <span style="font-size: 14px;">🛡️</span> Watching Family Setup
-        </span>
-      </div>
-      <h1>Who is using this computer?</h1>
-      <p>A calm, balanced digital sanctuary where screen time is earned through playful discovery & micro-quizzes.</p>
-
-      <div class="card-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); margin-top: 16px;">
-        <!-- Parent Card -->
-        <div class="cult-card" id="as-parent" role="button" tabindex="0">
-          <div class="cult-card-header">
-            <div class="cult-icon-tile primary">👨‍👩‍👧‍👦</div>
-            <div>
-              <div style="display: flex; align-items: center; gap: 6px;">
-                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600;">I am a Parent</h3>
-                <span class="pill-badge">Remote</span>
-              </div>
-              <p style="margin: 4px 0 0; font-size: 0.85rem; color: var(--ms-on-surface-variant); line-height: 1.4;">
-                Approve apps, set gentle sleep routines, and assign micro-quizzes.
-              </p>
-            </div>
-          </div>
-          <div class="badge-row">
-            <span class="pill-badge">⏱ Quiet Hours</span>
-            <span class="pill-badge">🧠 Adaptive Quiz</span>
-            <span class="pill-badge">✓ Approvals</span>
-          </div>
-          <button class="btn btn-primary" style="width: 100%; margin-top: 10px;" type="button">
-            <span>Continue as Parent</span> →
-          </button>
-        </div>
-
-        <!-- Child Card -->
-        <div class="cult-card" id="as-child" role="button" tabindex="0">
-          <div class="cult-card-header">
-            <div class="cult-icon-tile secondary">💻</div>
-            <div>
-              <div style="display: flex; align-items: center; gap: 6px;">
-                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600;">Child Device</h3>
-                <span class="pill-badge">Protected</span>
-              </div>
-              <p style="margin: 4px 0 0; font-size: 0.85rem; color: var(--ms-on-surface-variant); line-height: 1.4;">
-                Pair this PC with a parent phone. Always-on guardian protects screen time.
-              </p>
-            </div>
-          </div>
-          <div class="badge-row">
-            <span class="pill-badge">🎯 Focused Study</span>
-            <span class="pill-badge">🛡️ Always-On</span>
-            <span class="pill-badge">🌿 Calm Lock</span>
-          </div>
-          <button class="btn btn-secondary" style="width: 100%; margin-top: 10px;" type="button">
-            <span>Set up Child Device</span> →
-          </button>
-        </div>
-      </div>
-
-      <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--ms-outline-subtle); display: flex; justify-content: space-between; align-items: center; width: 100%; max-width: 580px;">
-        <span class="meta" style="margin: 0; font-size: 0.78rem;">Platform: <strong>${escapeHtml(bootstrap.platform.toUpperCase())}</strong> · Certified Local Guardian Daemon</span>
-        <button type="button" class="btn btn-secondary btn-sm" id="reset-first-time" style="font-size: 0.76rem; padding: 4px 10px;">
-          Diagnostics: Reset App State
-        </button>
-      </div>
-    </div>`;
-
-  document.getElementById("reset-first-time")?.addEventListener("click", () => {
-    void (async () => {
-      try {
+  mountScreen(
+    view,
+    createElement(RoleSelectScreen, {
+      bridge: appBridge(),
+      platform: bootstrap.platform ?? "",
+      // Dev only: local reset. Never deletes the cloud family.
+      onResetLocal: async () => {
         localStorage.clear();
         sessionStorage.clear();
-        await invoke("parent_delete_family");
-        await invoke("parent_sign_out");
-        showToast("App state reset to initial setup", "info");
-      } catch {
-        // ignore
-      }
-      authEmail = "";
-      await renderRoleGate();
-    })();
-  });
-
-  const parentBtn = document.getElementById("as-parent");
-  parentBtn?.addEventListener("click", () => {
-    void navigate({ name: "parent-auth", step: "email" });
-  });
-  parentBtn?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      void navigate({ name: "parent-auth", step: "email" });
-    }
-  });
-
-  const childBtn = document.getElementById("as-child");
-  childBtn?.addEventListener("click", () => {
-    void setRole("child");
-  });
-  childBtn?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      void setRole("child");
-    }
-  });
+        try {
+          await invoke("parent_sign_out");
+        } catch {
+          // ignore
+        }
+        authEmail = "";
+        showToast("Local app state reset", "info");
+        await renderRoleGate();
+      },
+    }),
+  );
 }
 
 function renderParentAuth(step: "email" | "otp"): void {
@@ -7685,15 +7600,6 @@ function renderChildPinMenu(st: ChildUiState): void {
   mountScreen(view, createElement(ChildPinMenuScreen, { bridge: appBridge(), childName: st.childName }));
 }
 
-async function setRole(role: DeviceRole): Promise<void> {
-  try {
-    await invoke("set_role", { role });
-    if (role === "child") await navigate({ name: "child" });
-    else await navigate({ name: "role" });
-  } catch (err) {
-    renderError(err instanceof Error ? err.message : "Could not update role.");
-  }
-}
 
 async function setAppearance(appearance: Appearance): Promise<void> {
   try {
