@@ -37,3 +37,11 @@
   box-sizing: border-box;
 }
 .ms-react-root { width: 100%; }
+
+/* No Tailwind preflight (legacy screens), so form controls keep UA styles:
+   buttons would render near-black UA text on dark card backgrounds. Inherit
+   the theme text color/font instead (scoped to the React root only). */
+.ms-react-root button, .ms-react-root input, .ms-react-root select, .ms-react-root textarea {
+  color: inherit;
+  font: inherit;
+}

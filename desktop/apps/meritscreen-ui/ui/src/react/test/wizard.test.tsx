@@ -20,6 +20,19 @@ function impl(cmd: string) {
 }
 
 describe("ChildSetupWizard", () => {
+  it("selected age card uses readable foreground text (no dark-on-dark)", () => {
+    render(<ChildSetupWizard bridge={mockBridge({}, impl)} mode="add-child" />);
+    const selected = screen.getByRole("radio", { name: /ages 7/i });
+    expect(selected).toHaveAttribute("aria-checked", "true");
+    expect(selected.className).toContain("text-card-foreground");
+    // label + description spans both carry explicit foreground color
+    const spans = selected.querySelectorAll("span");
+    expect(spans[0].className).toContain("text-foreground");
+    expect(spans[1].className).toContain("text-foreground");
+    const unselected = screen.getByRole("radio", { name: /ages 3/i });
+    expect(unselected.querySelectorAll("span")[1].className).toContain("text-muted-foreground");
+  });
+
   it("validates the child name", async () => {
     render(<ChildSetupWizard bridge={mockBridge({}, impl)} mode="onboard" />);
     await userEvent.click(screen.getByRole("button", { name: /continue/i }));

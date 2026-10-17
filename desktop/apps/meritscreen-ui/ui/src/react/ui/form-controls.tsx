@@ -141,7 +141,7 @@ export function ChoiceCard({
       aria-label={label}
       onClick={onSelect}
       className={cn(
-        "flex cursor-pointer items-center gap-3 rounded-md border bg-card p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "flex cursor-pointer items-center gap-3 rounded-md border bg-card p-3 text-left text-card-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         selected ? "border-primary ring-1 ring-primary" : "border-border hover:bg-muted",
         className,
       )}

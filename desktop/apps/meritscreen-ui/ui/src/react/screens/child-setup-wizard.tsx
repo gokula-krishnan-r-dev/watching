@@ -139,8 +139,8 @@ export function ChildSetupWizard({ bridge, mode }: { bridge: AppBridge; mode: Mo
             <div role="radiogroup" aria-label="Age group" className="grid gap-2 sm:grid-cols-3">
               {AGE_BANDS.map((b) => (
                 <ChoiceCard key={b.id} label={b.label} selected={age === b.id} onSelect={() => setAge(b.id)} className="flex-col items-start gap-0.5">
-                  <span className="text-sm font-bold">{b.label}</span>
-                  <span className="text-xs text-muted-foreground">{b.sub}</span>
+                  <span className="text-sm font-bold text-foreground">{b.label}</span>
+                  <span className={age === b.id ? "text-xs text-foreground" : "text-xs text-muted-foreground"}>{b.sub}</span>
                 </ChoiceCard>
               ))}
             </div>
