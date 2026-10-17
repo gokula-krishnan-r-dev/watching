@@ -457,3 +457,188 @@ mod tests {
         assert_ne!(picked.id, bank[0].id);
     }
 }
+
+/* ── Quiz pack validation (Android `QuizPackValidator`) ─────────────────────
+ * Generated/AI packs must pass the same gates on every platform before a single
+ * question reaches a child. Invalid items are dropped, never repaired silently
+ * (except the documented early-learner TAP_TEXT downgrade). */
+
+pub const VISUAL_TAXONOMY_JSON: &str = include_str!("../assets/quiz_visual_taxonomy.json");
+
+/// Visual tags a visual question may reference (Android `VisualTaxonomy.allTags()`).
+pub fn visual_taxonomy_tags() -> std::collections::HashSet<String> {
+    serde_json::from_str::<serde_json::Value>(VISUAL_TAXONOMY_JSON)
+        .ok()
+        .and_then(|v| v["tags"].as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|t| t["tag"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// Emoji for a visual tag (empty string when unknown).
+pub fn visual_tag_emoji(tag: &str) -> &'static str {
+    match tag {
+        "dog" => "🐶", "cat" => "🐱", "cow" => "🐮", "lion" => "🦁", "elephant" => "🐘",
+        "rabbit" => "🐰", "fox" => "🦊", "bear" => "🐻", "duck" => "🦆", "owl" => "🦉",
+        "apple" => "🍎", "banana" => "🍌", "orange" => "🍊", "strawberry" => "🍓",
+        "grapes" => "🍇", "watermelon" => "🍉", "circle" => "⭕", "square" => "⬛",
+        "triangle" => "🔺", "star" => "⭐", "heart" => "❤️", "color_red" => "🔴",
+        "color_blue" => "🔵", "color_yellow" => "🟡", "color_green" => "🟢",
+        "color_orange" => "🟠", "color_purple" => "🟣",
+        _ => "",
+    }
+}
+
+const UNSAFE_TERMS: [&str; 11] = [
+    "kill", "die", "suicide", "blood", "gun", "weapon", "hate you", "@gmail", "http://", "https://", "password",
+];
+
+fn contains_unsafe(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    UNSAFE_TERMS.iter().any(|t| lower.contains(t))
+}
+
+/// Parse a pack (bare array, `{"items": […]}`, or one object; ```json fences tolerated)
+/// and validate every item for `expected` band. Mirrors Android accept/drop semantics.
+pub fn parse_and_validate_pack(
+    raw_json: &str,
+    expected: AgeBand,
+    avoid_ids: &std::collections::HashSet<String>,
+) -> Vec<QuizQuestion> {
+    let trimmed = raw_json.trim().trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim();
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+        return Vec::new();
+    };
+    let items: Vec<serde_json::Value> = match &value {
+        serde_json::Value::Array(a) => a.clone(),
+        serde_json::Value::Object(o) if o.contains_key("items") => o["items"].as_array().cloned().unwrap_or_default(),
+        serde_json::Value::Object(_) => vec![value.clone()],
+        _ => Vec::new(),
+    };
+    let known = visual_taxonomy_tags();
+    let mut accepted: Vec<QuizQuestion> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = avoid_ids.clone();
+    for item in &items {
+        let Ok(mut q) = serde_json::from_value::<QuizQuestion>(item.clone()) else { continue };
+        if q.topic.trim().is_empty() || q.concept_id.trim().is_empty() || q.prompt.trim().is_empty() { continue; }
+        if q.why_correct.trim().is_empty() || q.concept_explainer.trim().is_empty() { continue; }
+        if !(1..=5).contains(&q.difficulty) { continue; }
+        if contains_unsafe(&q.prompt) || contains_unsafe(&q.why_correct) { continue; }
+        q.choices.retain(|c| !c.id.trim().is_empty());
+        if q.choices.len() < 2 || q.choices.iter().filter(|c| c.correct).count() != 1 { continue; }
+        for c in q.choices.iter().filter(|c| !c.correct) {
+            q.why_wrong_by_choice.entry(c.id.clone()).or_insert_with(|| "Not quite — try another answer.".into());
+        }
+        if expected.bank_band() == AgeBand::Age3To6 {
+            let mut tags: Vec<&str> = q.prompt_tag.as_deref().into_iter().collect();
+            tags.extend(q.choices.iter().filter_map(|c| c.image_tag.as_deref()));
+            let unknown = tags.iter().any(|t| !known.contains(*t));
+            let text_only = q.choices.iter().any(|c| !c.text.trim().is_empty());
+            if unknown && text_only {
+                q.interaction_type = "TAP_TEXT".into();
+                q.prompt_tag = None;
+                q.prompt_count = None;
+                q.prompt_audio_key = None;
+                for c in &mut q.choices { c.image_tag = None; c.audio_key = None; }
+            } else if unknown {
+                continue;
+            } else if q.interaction_type == "TAP_TEXT" && q.choices.iter().all(|c| c.text.trim().is_empty() && c.image_tag.is_none()) {
+                continue;
+            }
+        }
+        if let Some(lesson) = &mut q.mini_lesson {
+            if lesson.title.trim().is_empty() || lesson.body_lines.is_empty() {
+                q.mini_lesson = None;
+            } else {
+                lesson.body_lines = lesson.body_lines.iter().take(3).map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+                if lesson.body_lines.is_empty() {
+                    q.mini_lesson = None;
+                } else if expected.bank_band() == AgeBand::Age3To6 {
+                    lesson.body_lines.truncate(1);
+                }
+            }
+        }
+        if q.id.trim().is_empty() || seen.contains(&q.id) {
+            q.id = format!("ai_{}", pack_id_hash(&q.prompt, accepted.len()));
+        }
+        if seen.contains(&q.id) { continue; }
+        seen.insert(q.id.clone());
+        q.age_band = expected.bank_band();
+        q.topic = q.topic.trim().to_lowercase().replace(' ', "-");
+        q.concept_id = q.concept_id.trim().to_string();
+        if q.concept_title.trim().is_empty() { q.concept_title = q.concept_id.clone(); }
+        q.prompt = q.prompt.trim().to_string();
+        q.why_correct = q.why_correct.trim().to_string();
+        q.concept_explainer = q.concept_explainer.trim().to_string();
+        if q.language.trim().is_empty() { q.language = "en".into(); }
+        q.source = "ai".into();
+        accepted.push(q);
+    }
+    accepted
+}
+
+fn pack_id_hash(seed: &str, n: usize) -> String {
+    // Deterministic id for reproducibility (Android uses a random uuid).
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in seed.bytes().chain(n.to_be_bytes()) {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{h:016x}")
+}
+
+/// Android `shouldGenerate`: generate when the band has no AI items or the near-rung pool is low.
+pub fn pack_should_generate(near_rung_unused: usize, ai_count_for_band: usize, low_threshold: usize) -> bool {
+    ai_count_for_band == 0 || near_rung_unused < low_threshold
+}
+
+#[cfg(test)]
+mod pack_tests {
+    use super::*;
+
+    fn item(id: &str) -> String {
+        format!(
+            r#"{{"id":"{id}","ageBand":"AGE_7_TO_9","topic":"Math Fun","conceptId":"add","conceptTitle":"Addition","difficulty":3,"prompt":"1+1?","choices":[{{"id":"a","text":"2","correct":true}},{{"id":"b","text":"3","correct":false}}],"whyCorrect":"Because.","whyWrongByChoice":{{}},"conceptExplainer":"Adding."}}"#
+        )
+    }
+
+    #[test]
+    fn pack_validation_accepts_and_normalizes() {
+        let out = parse_and_validate_pack(&format!("[{}]", item("p1")), AgeBand::Age7To9, &HashSet::new());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].topic, "math-fun");
+        assert_eq!(out[0].source, "ai");
+        assert!(out[0].why_wrong_by_choice.contains_key("b"));
+        let wrapped = format!("```json\n{{\"items\":[{}]}}\n```", item("p2"));
+        assert_eq!(parse_and_validate_pack(&wrapped, AgeBand::Age7To9, &HashSet::new()).len(), 1);
+    }
+
+    #[test]
+    fn pack_validation_drops_unsafe_and_invalid() {
+        let bad_difficulty = item("p1").replace("\"difficulty\":3", "\"difficulty\":9");
+        let two_correct = item("p2").replace("\"correct\":false", "\"correct\":true");
+        let unsafe_q = item("p3").replace("1+1?", "visit https://example.com 1+1?");
+        let raw = format!("[{bad_difficulty},{two_correct},{unsafe_q},{}]", item("ok"));
+        let out = parse_and_validate_pack(&raw, AgeBand::Age7To9, &HashSet::new());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "ok");
+        let dup = format!("[{},{}]", item("x"), item("x"));
+        let out = parse_and_validate_pack(&dup, AgeBand::Age7To9, &HashSet::new());
+        assert_eq!(out.len(), 2);
+        assert_ne!(out[0].id, out[1].id);
+        assert!(pack_should_generate(5, 0, 8));
+        assert!(!pack_should_generate(9, 3, 8));
+    }
+
+    #[test]
+    fn early_learner_unknown_visual_tags_downgrade() {
+        let visual = r#"{"id":"v1","ageBand":"AGE_3_TO_6","topic":"animals","conceptId":"dog","conceptTitle":"Dog","difficulty":1,"prompt":"Which is the dog?","choices":[{"id":"a","text":"Dog","correct":true,"imageTag":"dog"},{"id":"b","text":"Cat","correct":false,"imageTag":"invented_tag"}],"whyCorrect":"It barks.","whyWrongByChoice":{},"conceptExplainer":"Dogs bark.","interactionType":"TAP_IMAGE"}"#;
+        let out = parse_and_validate_pack(&format!("[{visual}]"), AgeBand::Age3To6, &HashSet::new());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].interaction_type, "TAP_TEXT");
+        assert!(out[0].choices.iter().all(|c| c.image_tag.is_none()));
+        assert_eq!(visual_taxonomy_tags().len(), 32);
+        assert_eq!(visual_tag_emoji("dog"), "🐶");
+    }
+}
