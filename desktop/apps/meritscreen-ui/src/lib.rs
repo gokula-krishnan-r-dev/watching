@@ -830,6 +830,14 @@ fn child_retry_quiz(state: State<'_, AppState>) -> Result<ChildUiState, String> 
 }
 
 #[tauri::command]
+fn child_start_ceiling_quiz(state: State<'_, AppState>) -> Result<ChildUiState, String> {
+    state
+        .child
+        .start_ceiling_quiz()
+        .map_err(|e| e.user_message().to_string())
+}
+
+#[tauri::command]
 fn child_open_pin_menu(state: State<'_, AppState>) -> Result<ChildUiState, String> {
     state
         .child
@@ -851,9 +859,6 @@ fn child_verify_pin(pin: String, state: State<'_, AppState>) -> Result<bool, Str
         }
         return Ok(true);
     }
-    if pin_trimmed == "1234" || pin_trimmed == "0000" {
-        return Ok(true);
-    }
     state
         .child
         .verify_pin(pin_trimmed)
@@ -867,9 +872,8 @@ fn child_pin_unpair(
     state: State<'_, AppState>,
 ) -> Result<ChildUiState, String> {
     let pin_trimmed = pin.trim();
-    let is_valid = pin_trimmed == "1234"
-        || pin_trimmed == "0000"
-        || state.parent.verify_pin(pin_trimmed)
+    // Real parent PIN only — no built-in/demo PINs are accepted here.
+    let is_valid = state.parent.verify_pin(pin_trimmed)
         || state.child.verify_pin(pin_trimmed).unwrap_or(false);
 
     if !is_valid {
@@ -1048,9 +1052,8 @@ fn child_skip_quiz_with_pin(
     state: State<'_, AppState>,
 ) -> Result<ChildUiState, String> {
     let pin_trimmed = pin.trim();
-    let is_valid = pin_trimmed == "1234"
-        || pin_trimmed == "0000"
-        || state.parent.verify_pin(pin_trimmed)
+    // Real parent PIN only — no built-in/demo PINs are accepted here.
+    let is_valid = state.parent.verify_pin(pin_trimmed)
         || state.child.verify_pin(pin_trimmed).unwrap_or(false);
 
     if !is_valid {
@@ -1291,9 +1294,8 @@ fn child_exit_with_pin(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let pin_trimmed = pin.trim();
-    let is_valid = pin_trimmed == "1234"
-        || pin_trimmed == "0000"
-        || state.parent.verify_pin(pin_trimmed)
+    // Real parent PIN only — no built-in/demo PINs are accepted here.
+    let is_valid = state.parent.verify_pin(pin_trimmed)
         || state.child.verify_pin(pin_trimmed).unwrap_or(false);
 
     if !is_valid {
@@ -1351,7 +1353,7 @@ pub fn run() {
             if let Some(ref overlay) = flags.overlay {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.set_always_on_top(true);
-                    if overlay == "quiz_due" || overlay == "shielded" || overlay == "fail_lock" {
+                    if overlay == "quiz_due" || overlay == "shielded" || overlay == "fail_lock" || overlay == "ceiling_reached" {
                         let _ = window.set_fullscreen(true);
                     }
                 }
@@ -1473,8 +1475,20 @@ pub fn run() {
                             sample.is_screen_locked,
                             1000,
                         );
-                        let is_quiz_active = matches!(ui_state.screen, meritscreen_child::ChildScreen::Quiz)
-                            || ui_state.phase == SessionPhase::QuizDue;
+                        // Quiz, fail lock, daily-limit lock and parent pause
+                        // all take over the device — not just the quiz.
+                        let is_quiz_active = matches!(
+                            ui_state.screen,
+                            meritscreen_child::ChildScreen::Quiz
+                                | meritscreen_child::ChildScreen::FailLock
+                                | meritscreen_child::ChildScreen::Ceiling
+                                | meritscreen_child::ChildScreen::Paused
+                        ) || matches!(
+                            ui_state.phase,
+                            SessionPhase::QuizDue
+                                | SessionPhase::Shielded
+                                | SessionPhase::CeilingReached
+                        );
                         if newly_due || is_quiz_active {
                             enter_quiz_blocking_mode(&app_handle_bg);
                             if newly_due {
@@ -1591,6 +1605,7 @@ pub fn run() {
             child_answer_quiz,
             child_complete_nursery,
             child_retry_quiz,
+            child_start_ceiling_quiz,
             child_skip_quiz_with_pin,
             exit_quiz_blocking,
             child_open_pin_menu,

@@ -124,3 +124,34 @@ fn tamper_flags_survive_db_round_trip() {
     let flags = load_tamper_flags(&db.conn);
     assert!(flags.uninstall_attempt);
 }
+
+#[test]
+fn reboot_at_daily_limit_restores_ceiling_lock_and_used_minutes() {
+    let _guard = env_lock();
+    isolate_env();
+    {
+        let db = open_guardian_db().expect("open");
+        let snap = SessionSnapshot {
+            phase: SessionPhase::CeilingReached,
+            minutes_used_today: 45,
+            ceiling_extension_minutes: 0,
+            ..SessionSnapshot::default()
+        };
+        persist_session(&db.conn, &snap);
+    }
+    let db = open_guardian_db().expect("reopen");
+    let restored = restore_session(&db.conn);
+    assert_eq!(restored.phase, SessionPhase::CeilingReached, "reboot must not clear the daily-limit lock");
+    assert_eq!(restored.minutes_used_today, 45, "used minutes today survive reboot");
+
+    let state = GuardianState::default();
+    *state.role.lock() = DeviceRole::Child;
+    *state.session.lock() = restored;
+    assert!(state.ui_required(), "ceiling lock must raise the UI overlay after reboot");
+}
+
+#[test]
+fn session_phase_parse_round_trips_ceiling() {
+    assert_eq!(SessionPhase::parse("ceiling_reached"), SessionPhase::CeilingReached);
+    assert_eq!(SessionPhase::CeilingReached.as_str(), "ceiling_reached");
+}

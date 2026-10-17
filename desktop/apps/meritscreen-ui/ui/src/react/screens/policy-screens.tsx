@@ -77,6 +77,7 @@ function TimeLimits({ draft, update }: { draft: ChildPolicy; update: Upd }) {
           <Slider label="Daily limit" value={draft.dailyCeilingMinutes ?? 120} min={15} max={480} step={15} onChange={(v) => update("dailyCeilingMinutes", v)} format={formatMinutes} />
         )}
         <Switch checked={draft.weekendBonusEnabled} onCheckedChange={(v) => update("weekendBonusEnabled", v)} label="Weekend bonus" description="A little extra time on Saturdays and Sundays." />
+        {limitOn && <Switch checked={!!draft.allowEarnBeyondDailyLimit} onCheckedChange={(v) => update("allowEarnBeyondDailyLimit", v)} label="Allow quiz to earn beyond the daily limit" description="Off: the daily limit is a hard stop. On: passing a quiz at the limit earns a little extra time today (up to 4 hours)." />}
       </Section>
       <Section title="Quiz pacing">
         <Slider label="Quiz every" value={draft.quizIntervalMinutes} min={5} max={120} step={5} onChange={(v) => update("quizIntervalMinutes", v)} format={(v) => `${v} min`} />

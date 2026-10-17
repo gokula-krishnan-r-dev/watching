@@ -25,6 +25,7 @@ export interface ChildPolicy {
   paused: boolean;
   /** Parent bonus for `bonusDay` only (child-local YYYY-MM-DD); never changes the daily limit. */
   bonusMinutesToday?: number;
+  allowEarnBeyondDailyLimit?: boolean;
   bonusDay?: string | null;
 }
 export interface InventoryApp {
@@ -155,6 +156,8 @@ export interface ChildUiState {
   lastAward?: LastAward | null;
   nursery?: NurseryState | null;
   canRetryDuringCooldown?: boolean;
+  paused?: boolean;
+  canEarnBeyondCeiling?: boolean;
   lastFeedback: { correct: boolean; resultLine: string; whyLine: string; conceptLine: string } | null;
   lastResult: { passed: boolean; correctCount: number; total: number; percent: number } | null;
   packSource: string;

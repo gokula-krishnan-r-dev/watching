@@ -16,7 +16,7 @@ import { ErrorState } from "../components/states";
 import { friendlyError } from "../lib/errors";
 import { cn } from "../lib/utils";
 
-export const SESSION_SCREENS = ["checklist", "launcher", "quiz", "nursery", "fail_lock", "ceiling"] as const;
+export const SESSION_SCREENS = ["checklist", "launcher", "quiz", "nursery", "fail_lock", "ceiling", "paused"] as const;
 
 /** Read-aloud (Android QuizTtsNarrator: offline TTS, rate 0.85, pitch 1.05). */
 export function speak(text: string): void {
@@ -80,7 +80,7 @@ export function ChildSessionScreen({ bridge, initial, autoMinimize = true }: { b
   // Block other screens behind the quiz in the window chrome.
   React.useEffect(() => {
     // Lock screens take over the whole window (chrome hidden) so nothing else is reachable.
-    const blocking = st.screen === "quiz" || st.screen === "fail_lock" || st.screen === "ceiling" || passed != null;
+    const blocking = st.screen === "quiz" || st.screen === "fail_lock" || st.screen === "ceiling" || st.screen === "paused" || passed != null;
     document.body.classList.toggle("quiz-blocking-mode", blocking);
     return () => document.body.classList.remove("quiz-blocking-mode");
   }, [st.screen, passed]);
@@ -90,7 +90,7 @@ export function ChildSessionScreen({ bridge, initial, autoMinimize = true }: { b
   React.useEffect(() => {
     if (passed) return;
     let cancelled = false;
-    const period = locked || st.screen === "launcher" ? 1000 : st.screen === "ceiling" ? 5000 : 0;
+    const period = locked || st.screen === "launcher" ? 1000 : st.screen === "ceiling" || st.screen === "paused" ? 2000 : 0;
     if (!period) return;
     const id = window.setInterval(() => {
       void (async () => {
@@ -145,7 +145,8 @@ export function ChildSessionScreen({ bridge, initial, autoMinimize = true }: { b
       />
     );
   else if (st.screen === "fail_lock") body = <FailLock bridge={bridge} st={st} onSkip={() => setSkipOpen(true)} onPin={() => void openPinMenu()} onRefresh={refresh} />;
-  else body = <Ceiling st={st} onPin={() => void openPinMenu()} />;
+  else if (st.screen === "paused") body = <Paused st={st} onPin={() => void openPinMenu()} />;
+  else body = <Ceiling bridge={bridge} st={st} onPin={() => void openPinMenu()} onRefresh={refresh} />;
 
   return (
     <>
@@ -623,14 +624,52 @@ function FailLock({ bridge, st, onSkip, onPin, onRefresh }: { bridge: AppBridge;
   );
 }
 
-function Ceiling({ st, onPin }: { st: ChildUiState; onPin: () => void }) {
+function Ceiling({ bridge, st, onPin, onRefresh }: { bridge: AppBridge; st: ChildUiState; onPin: () => void; onRefresh: () => Promise<void> }) {
+  const [busy, setBusy] = React.useState(false);
+  const earn = async () => {
+    setBusy(true);
+    try {
+      await bridge.invoke("child_start_ceiling_quiz");
+      await onRefresh();
+    } catch (e) {
+      bridge.toast(friendlyError(e), "error");
+      setBusy(false);
+    }
+  };
   return (
     <Overlay tone="fail" labelledBy="ceiling-title">
       <h1 id="ceiling-title" className="m-0 text-2xl font-bold">
         {t("child_ceiling_title")}
       </h1>
       <p className="mt-2">{t("child_ceiling_body", { minutes: st.minutesUsedToday })}</p>
-      <p className="text-sm text-slate-400">Emergency apps still work.</p>
+      {st.dailyLimitMinutes != null && (
+        <p className="text-sm text-slate-400">
+          {st.minutesUsedToday} of {st.dailyLimitMinutes} minutes used today
+          {(st.bonusMinutesToday ?? 0) > 0 && ` · includes a ${st.bonusMinutesToday} min parent bonus`}
+        </p>
+      )}
+      <p className="text-sm text-slate-400">Emergency apps still work. If a parent gives you more time, this screen will open by itself.</p>
+      <div className="flex flex-wrap gap-2">
+        {st.canEarnBeyondCeiling && (
+          <Button loading={busy} loadingText="Starting quiz…" onClick={() => void earn()}>
+            <BookOpen className="h-4 w-4" aria-hidden="true" /> Take a quiz to earn more time
+          </Button>
+        )}
+        <Button variant="secondary" onClick={onPin}>
+          <KeyRound className="h-4 w-4" aria-hidden="true" /> {t("parent_pin_label")}
+        </Button>
+      </div>
+    </Overlay>
+  );
+}
+
+function Paused({ st, onPin }: { st: ChildUiState; onPin: () => void }) {
+  return (
+    <Overlay tone="fail" labelledBy="paused-title">
+      <h1 id="paused-title" className="m-0 text-2xl font-bold">
+        Paused by your parent
+      </h1>
+      <p className="mt-2">Screen time is paused for {st.childName} right now. Emergency apps still work.</p>
       <Button variant="secondary" onClick={onPin}>
         <KeyRound className="h-4 w-4" aria-hidden="true" /> {t("parent_pin_label")}
       </Button>

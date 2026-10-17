@@ -90,3 +90,28 @@ describe("ChildSessionScreen", () => {
     await waitFor(() => expect(b.navigate).toHaveBeenCalledWith({ name: "child" }));
   });
 });
+
+describe("daily-limit lock", () => {
+  const ceiling: ChildUiState = { ...base, screen: "ceiling", phase: "ceiling_reached", minutesUsedToday: 60, dailyLimitMinutes: 60, dailyRemainingMinutes: 0, ceilingHit: true };
+  it("shows used/limit, emergency note and parent PIN, with no quiz when earn-more is off", () => {
+    const b = mockBridge({}, () => ceiling);
+    render(<ChildSessionScreen bridge={b} initial={ceiling} autoMinimize={false} />);
+    expect(screen.getByText(/60 of 60 minutes used today/)).toBeInTheDocument();
+    expect(screen.getByText(/Emergency apps still work/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Take a quiz/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Parent PIN/ })).toBeInTheDocument();
+  });
+  it("offers the earn-more quiz only when the parent allows it", async () => {
+    const withEarn = { ...ceiling, canEarnBeyondCeiling: true };
+    const b = mockBridge({}, (c) => (c === "child_ui_state" ? withEarn : withEarn));
+    render(<ChildSessionScreen bridge={b} initial={withEarn} autoMinimize={false} />);
+    fireEvent.click(screen.getByRole("button", { name: /Take a quiz to earn more time/ }));
+    await waitFor(() => expect(b.invoke).toHaveBeenCalledWith("child_start_ceiling_quiz"));
+  });
+  it("paused screen locks with only PIN available", () => {
+    const b = mockBridge({}, () => base);
+    render(<ChildSessionScreen bridge={b} initial={{ ...base, screen: "paused", paused: true }} autoMinimize={false} />);
+    expect(screen.getByText(/Paused by your parent/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Parent PIN/ })).toBeInTheDocument();
+  });
+});
