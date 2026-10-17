@@ -108,8 +108,12 @@ impl SessionSnapshot {
         }
     }
 
+    /// Minutes left today, or 0 when the parent set no daily limit
+    /// (check [`effective_ceiling_opt`] to distinguish "no limit" from "0 left").
     pub fn daily_remaining_minutes(&self, policy: &ChildPolicy) -> u32 {
-        effective_ceiling(policy, self).saturating_sub(self.minutes_used_today)
+        effective_ceiling_opt(policy, self)
+            .map(|c| c.saturating_sub(self.minutes_used_today))
+            .unwrap_or(0)
     }
 
     /// Parent bonus minutes in force right now (today only, rollback-safe).
@@ -135,6 +139,8 @@ pub fn effective_ceiling_opt(policy: &ChildPolicy, snap: &SessionSnapshot) -> Op
 }
 
 /// Daily limit including today's bonus, falling back to the default limit.
+/// Legacy display helper — do NOT use for enforcement or child UI: a null
+/// parent ceiling is "no daily limit" (see [`effective_ceiling_opt`]).
 pub fn effective_ceiling(policy: &ChildPolicy, snap: &SessionSnapshot) -> u32 {
     policy
         .daily_ceiling_minutes
@@ -226,11 +232,13 @@ impl SessionEngine {
             state.minutes_used_today = today;
             state.last_tick_elapsed_ms = Some(now_elapsed_ms);
 
-            let ceiling = effective_ceiling(policy, &state);
             let under_grace = state
                 .quiz_grace_until_elapsed_ms
                 .is_some_and(|g| now_elapsed_ms < g);
-            let ceiling_hit = today >= ceiling && !under_grace;
+            // No parent daily limit ⇒ the daily ceiling can never be hit.
+            let ceiling_hit = effective_ceiling_opt(policy, &state)
+                .map(|ceiling| today >= ceiling && !under_grace)
+                .unwrap_or(false);
             let block_hit = new_accrued_minutes >= f64::from(state.block_duration_minutes);
 
             if ceiling_hit
@@ -694,6 +702,22 @@ mod bonus_engine_tests {
         // Yesterday's grant does nothing today.
         policy.bonus_day = Some("2000-01-01".into());
         assert_eq!(snap.daily_remaining_minutes(&policy), 0);
+    }
+
+    #[test]
+    fn no_daily_limit_never_hits_a_fabricated_120_ceiling() {
+        let policy = ChildPolicy {
+            quiz_mode: QuizMode::DeviceInterval,
+            quiz_interval_minutes: 240,
+            daily_ceiling_minutes: None,
+            ..ChildPolicy::default()
+        };
+        let started = SessionEngine::start_device_interval(SessionSnapshot::default(), 0, &policy);
+        // 130 active minutes: past the old made-up 120, still in the first block.
+        let after = SessionEngine::tick(started, 130 * 60_000, &policy, true);
+        assert_eq!(after.phase, SessionPhase::InBlock);
+        assert_eq!(effective_ceiling_opt(&policy, &after), None);
+        assert_eq!(after.daily_remaining_minutes(&policy), 0);
     }
 
     #[test]

@@ -311,6 +311,60 @@ fn parent_child_detail(
         .map_err(|e| e.user_message().into())
 }
 
+/// If this computer is also the paired child device for `child_id`, apply the
+/// parent's new policy to the child runtime right now (no poll wait).
+fn apply_policy_to_local_child(state: &AppState, child_id: &str) {
+    if state.child.child_id().as_deref() != Some(child_id) {
+        return;
+    }
+    if let Some((policy, rules)) = state.parent.local_child_policy(child_id) {
+        if state.child.apply_policy(policy, Some(rules)) {
+            tracing::info!(child_id, "parent policy applied to local child immediately");
+        }
+    }
+}
+
+/// Live child-policy sync: Firestore (child credentials) first, then the
+/// same-computer parent record. Returns true when the child policy changed.
+async fn sync_child_policy(state: &AppState) -> bool {
+    if let Some((family_id, child_id, _device_id)) = state.child.pairing_ids() {
+        let refresh = meritscreen_security::SecretStore::platform()
+            .get(meritscreen_security::accounts::CHILD_REFRESH)
+            .map(|t| t.to_string())
+            .unwrap_or_default();
+        if !refresh.is_empty() {
+            match state
+                .parent
+                .fetch_child_policy_for_device(&family_id, &child_id, &refresh)
+                .await
+            {
+                Ok(Some((policy, rules))) => {
+                    return state.child.apply_policy(policy, Some(rules));
+                }
+                Ok(None) => {}
+                Err(e) => tracing::warn!(error = %e, "live child policy pull failed; keeping current policy"),
+            }
+        }
+    }
+    if let Some(child_id) = state.child.child_id() {
+        if let Some((policy, rules)) = state.parent.local_child_policy(&child_id) {
+            return state.child.apply_policy(policy, Some(rules));
+        }
+        // Same-computer pairing minted a placeholder child id: when the parent
+        // has exactly one child there is no ambiguity — align and apply.
+        if let meritscreen_core::UiState::Success(dash) = state.parent.dashboard() {
+            if dash.children.len() == 1 {
+                let only = &dash.children[0];
+                state.child.align_child_identity(&only.child_id);
+                if let Some((policy, rules)) = state.parent.local_child_policy(&only.child_id) {
+                    return state.child.apply_policy(policy, Some(rules));
+                }
+            }
+        }
+    }
+    false
+}
+
 #[tauri::command]
 async fn parent_update_policy(
     child_id: String,
@@ -319,9 +373,11 @@ async fn parent_update_policy(
 ) -> Result<(), String> {
     state
         .parent
-        .update_policy_synced(&child_id, policy)
+        .update_policy_synced(&child_id, policy.clone())
         .await
-        .map_err(|e| e.user_message().into())
+        .map_err(|e| e.user_message().to_string())?;
+    apply_policy_to_local_child(&state, &child_id);
+    Ok(())
 }
 
 /// Parent-only: one-off bonus minutes for today (resets at the child's local midnight).
@@ -332,11 +388,15 @@ async fn parent_grant_bonus(
     minutes: u32,
     state: State<'_, AppState>,
 ) -> Result<ChildPolicy, String> {
-    state
+    let policy = state
         .parent
         .grant_bonus_synced(&child_id, minutes)
         .await
-        .map_err(|e| e.user_message().into())
+        .map_err(|e| e.user_message().to_string())?;
+    if state.child.child_id().as_deref() == Some(child_id.as_str()) {
+        state.child.apply_policy(policy.clone(), None);
+    }
+    Ok(policy)
 }
 
 #[tauri::command]
@@ -349,7 +409,9 @@ async fn parent_update_app_rules(
         .parent
         .update_app_rules_synced(&child_id, rules)
         .await
-        .map_err(|e| e.user_message().into())
+        .map_err(|e| e.user_message().to_string())?;
+    apply_policy_to_local_child(&state, &child_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -557,15 +619,44 @@ async fn child_pair(
             .consume_pairing_remote(&clean_code, platform, &device_id)
             .await
             .map_err(|e| e.user_message().to_string())?;
-        let cred = meritscreen_child::PairingCredential {
+        let mut cred = meritscreen_child::PairingCredential {
             family_id: remote.family_id.clone(),
             child_id: remote.child_id.clone(),
             device_id: if remote.device_id.is_empty() { device_id } else { remote.device_id.clone() },
             display_name: remote.display_name.clone(),
             age_band: remote.age_band.clone(),
             parent_pin_hash: remote.parent_pin_hash.clone(),
+            policy: None,
+            app_rules: Vec::new(),
             refresh_token: remote.refresh_token.clone(),
         };
+        // The parent's actual setting for THIS child, before the first timer
+        // starts — never the local 15/50/120 defaults.
+        match state
+            .parent
+            .fetch_child_policy_for_device(&cred.family_id, &cred.child_id, &cred.refresh_token)
+            .await
+        {
+            Ok(Some((policy, rules))) => {
+                cred.policy = Some(policy);
+                cred.app_rules = rules;
+            }
+            Ok(None) => {
+                if let Some((policy, rules)) = state.parent.local_child_policy(&cred.child_id) {
+                    cred.policy = Some(policy);
+                    cred.app_rules = rules;
+                } else {
+                    tracing::warn!("no Firestore policy for paired child yet; first live sync will apply it");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "policy pull at pairing failed; first live sync will apply it");
+                if let Some((policy, rules)) = state.parent.local_child_policy(&cred.child_id) {
+                    cred.policy = Some(policy);
+                    cred.app_rules = rules;
+                }
+            }
+        }
         state
             .child
             .bind_credential(&cred)
@@ -588,6 +679,14 @@ async fn child_pair(
             .child
             .pair(&clean_code, resolved_name.as_deref())
             .map_err(|e| e.user_message().to_string())?;
+        // Same-computer demo pairing: the parent's setting for that child
+        // applies immediately, exactly like the live path.
+        if let Ok(cid) = state.parent.consume_pairing(&clean_code, platform) {
+            state.child.align_child_identity(&cid);
+            if let Some((policy, rules)) = state.parent.local_child_policy(&cid) {
+                state.child.apply_policy(policy, Some(rules));
+            }
+        }
     } else {
         return Err("Pairing service is not configured. Reinstall Watching or contact support.".into());
     }
@@ -1351,6 +1450,19 @@ pub fn run() {
                         tick_counter += 1;
                         if tick_counter % 20 == 0 {
                             watchdog::spawn_supervisor_if_needed();
+                        }
+                        // Live parent-policy sync (Android/desktop/console
+                        // changes) without re-pairing or restarting.
+                        if tick_counter % u64::from(meritscreen_core::app_config::POLICY_PULL_INTERVAL_SECONDS.max(5)) == 0 {
+                            let app_poll = app_handle_bg.clone();
+                            tauri::async_runtime::spawn(async move {
+                                use tauri::Manager;
+                                let st = app_poll.state::<AppState>();
+                                if sync_child_policy(&st).await {
+                                    use tauri::Emitter;
+                                    let _ = app_poll.emit("ms_child_policy_updated", ());
+                                }
+                            });
                         }
                         // Sample foreground window across macOS / Windows / Linux
                         let sample = meritscreen_enforcement::platform::sample_foreground();

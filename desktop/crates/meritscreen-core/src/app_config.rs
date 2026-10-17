@@ -52,6 +52,10 @@ pub const INVENTORY_RESCAN_DEBOUNCE_SECONDS: u32 = 30;
 pub const INVENTORY_UPLOAD_MAX_APPS: u32 = 400;
 
 pub const POLICY_PULL_INTERVAL_HOURS: u32 = 6;
+/// How often a paired child device re-pulls `policy/current` so parent changes
+/// (desktop, Android, or console) show up live without re-pairing. One small
+/// document read per interval per device.
+pub const POLICY_PULL_INTERVAL_SECONDS: u32 = 30;
 pub const USAGE_UPLOAD_INTERVAL_HOURS: u32 = 2;
 pub const HEARTBEAT_INTERVAL_MINUTES: u32 = 30;
 
@@ -64,7 +68,9 @@ pub const GUARDIAN_RSS_BUDGET_MB: u32 = 25;
 /// Debug/CI RSS ceiling (unoptimized builds carry symbols + larger allocator churn).
 pub const GUARDIAN_RSS_BUDGET_DEBUG_MB: u32 = 120;
 
-/// Default daily ceiling when parent UI shows a number but policy field is null.
+/// Legacy display fallback only. Enforcement/UI must use
+/// `effective_ceiling_opt`: a null parent ceiling means "no daily limit",
+/// never silently 120.
 pub const DEFAULT_DAILY_CEILING_MINUTES: u32 = 120;
 
 /// Extra minutes on pass when weekend bonus is enabled.

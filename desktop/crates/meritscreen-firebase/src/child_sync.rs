@@ -190,7 +190,10 @@ pub fn policy_from_value(value: &Value) -> ChildPolicy {
     if let Some(mode) = string_field(&fields, "quizMode") {
         policy.quiz_mode = meritscreen_core::QuizMode::from_storage(Some(&mode));
     }
-    if let Some(n) = int_field(&fields, "quizIntervalMinutes") {
+    // Desktop device-interval length. Android parents never write
+    // `quizIntervalMinutes`; their per-app block length is the interval.
+    let explicit_interval = int_field(&fields, "quizIntervalMinutes");
+    if let Some(n) = explicit_interval {
         policy.quiz_interval_minutes = n as u32;
     }
     if let Some(n) = int_field(&fields, "questionsPerQuiz") {
@@ -213,6 +216,20 @@ pub fn policy_from_value(value: &Value) -> ChildPolicy {
     }
     if let Some(b) = bool_field(&fields, "rewardsEnabled") {
         policy.rewards_enabled = b;
+    }
+    if let Some(b) = bool_field(&fields, "weekendBonusEnabled") {
+        policy.weekend_bonus_enabled = b;
+    }
+    if let Some(n) = int_field(&fields, "extraMinutesOnPass") {
+        policy.extra_minutes_on_pass = n.max(0) as u32;
+    }
+    if let Some(apps) = string_list_field(&fields, "emergencyApps") {
+        policy.emergency_apps = apps;
+    }
+    if explicit_interval.is_none() {
+        // Android-written policy: fall back to the parent's block length so a
+        // 20-minute Android setting is not replaced by the 15-minute default.
+        policy.quiz_interval_minutes = policy.default_block_minutes;
     }
     if let Some(b) = bool_field(&fields, "paused") {
         policy.paused = b;
@@ -254,6 +271,11 @@ pub fn app_rule_from_value(app_id: &str, value: &Value) -> AppRule {
     if let Some(n) = int_field(&fields, "blockMinutes") {
         rule.block_minutes = n as u32;
     }
+    if let Some(n) = int_field(&fields, "grantOnPassMinutes") {
+        rule.grant_on_pass_minutes = n as u32;
+    } else {
+        rule.grant_on_pass_minutes = rule.block_minutes;
+    }
     if let Some(n) = int_field(&fields, "cooldownMinutes") {
         rule.cooldown_minutes = n as u32;
     }
@@ -289,6 +311,14 @@ fn int_field(fields: &Value, key: &str) -> Option<i64> {
         .and_then(|x| x.as_str())
         .and_then(|s| s.parse().ok())
         .or_else(|| v.get("integerValue").and_then(|x| x.as_i64()))
+}
+
+fn string_list_field(fields: &Value, key: &str) -> Option<Vec<String>> {
+    let v = fields.get(key)?;
+    let arr = v.as_array().or_else(|| v.get("arrayValue").and_then(|a| a.get("values")).and_then(|a| a.as_array()))?;
+    Some(arr.iter().filter_map(|item| {
+        item.as_str().map(str::to_string).or_else(|| item.get("stringValue").and_then(|x| x.as_str()).map(str::to_string))
+    }).collect())
 }
 
 fn bool_field(fields: &Value, key: &str) -> Option<bool> {
@@ -418,5 +448,33 @@ mod upload_format_tests {
         assert_eq!(v["unlockedAtEpochMs"], 42);
         assert_eq!(crate::paths::sticker_unlock("f", "c", "stk_c1_sprout_star"), "families/f/children/c/stickerUnlocks/stk_c1_sprout_star");
         assert_eq!(crate::paths::explorer_progress_current("f", "c"), "families/f/children/c/explorerProgress/current");
+    }
+}
+
+#[cfg(test)]
+mod parent_policy_tests {
+    use super::*;
+
+    #[test]
+    fn paired_child_gets_parents_15_minute_setting_not_defaults() {
+        // Firestore REST shape, exactly as the parent wrote it.
+        let v = json!({"fields": {
+            "quizMode": {"stringValue": "device_interval"},
+            "quizIntervalMinutes": {"integerValue": "15"},
+            "dailyCeilingMinutes": {"integerValue": "15"}
+        }});
+        let p = policy_from_value(&v);
+        assert_eq!(p.quiz_interval_minutes, 15);
+        assert_eq!(p.daily_ceiling_minutes, Some(15));
+    }
+
+    #[test]
+    fn android_policy_uses_block_length_and_no_ceiling_means_no_limit() {
+        // Android ChildPolicyMapper has no quizIntervalMinutes field.
+        let p = policy_from_value(&json!({"defaultBlockMinutes": 20, "weekendBonusEnabled": true, "extraMinutesOnPass": 5}));
+        assert_eq!(p.quiz_interval_minutes, 20, "parent's Android block length wins over the 15 default");
+        assert_eq!(p.daily_ceiling_minutes, None, "null ceiling is no limit, never 120");
+        assert!(p.weekend_bonus_enabled);
+        assert_eq!(p.extra_minutes_on_pass, 5);
     }
 }

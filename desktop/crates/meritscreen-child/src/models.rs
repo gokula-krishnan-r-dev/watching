@@ -1,8 +1,8 @@
 //! Child UI DTOs — local only, no Firebase types.
 
 use meritscreen_core::{
-    ExplorerProgress, NurseryTeachItem, NurseryVideo, QuizAnswerFeedback, QuizChoice,
-    QuizSessionResult, SessionPhase, SessionSnapshot, StickerUnlock,
+    AppRule, ChildPolicy, ExplorerProgress, NurseryTeachItem, NurseryVideo, QuizAnswerFeedback,
+    QuizChoice, QuizSessionResult, SessionPhase, SessionSnapshot, StickerUnlock,
 };
 use serde::{Deserialize, Serialize};
 
@@ -121,6 +121,13 @@ pub struct ChildUiState {
     pub block_duration_minutes: u32,
     pub cooldown_seconds: u32,
     pub daily_remaining_minutes: u32,
+    /// Parent's daily limit incl. today's bonus; `None` = no daily limit set
+    /// (display "No daily limit", never a made-up 120).
+    #[serde(default)]
+    pub daily_limit_minutes: Option<u32>,
+    /// Parent's quiz interval (minutes) currently in force on this device.
+    #[serde(default)]
+    pub quiz_interval_minutes: u32,
     pub ceiling_hit: bool,
     /// Parent bonus minutes in force today (already included in `daily_remaining_minutes`).
     #[serde(default)]
@@ -202,6 +209,8 @@ impl Default for ChildUiState {
             block_duration_minutes: meritscreen_core::app_config::DEFAULT_BLOCK_MINUTES,
             cooldown_seconds: 0,
             daily_remaining_minutes: 0,
+            daily_limit_minutes: None,
+            quiz_interval_minutes: meritscreen_core::app_config::DEFAULT_QUIZ_INTERVAL_MINUTES,
             ceiling_hit: false,
             bonus_minutes_today: 0,
             quiz: None,
@@ -260,10 +269,14 @@ pub fn snapshot_metrics(
     let rem_block = snap.remaining_block_minutes();
     let rem_seconds = snap.seconds_until_quiz_due().unwrap_or(rem_block * 60);
     let cooldown = snap.remaining_cooldown_seconds(now_ms);
-    let ceiling =
-        policy_ceiling.unwrap_or(meritscreen_core::app_config::DEFAULT_DAILY_CEILING_MINUTES);
-    let daily_rem = ceiling.saturating_sub(snap.minutes_used_today);
-    let ceiling_hit = snap.minutes_used_today >= ceiling;
+    // `None` ceiling = parent set no daily limit: never invent 120 minutes.
+    let (daily_rem, ceiling_hit) = match policy_ceiling {
+        Some(ceiling) => (
+            ceiling.saturating_sub(snap.minutes_used_today),
+            snap.minutes_used_today >= ceiling,
+        ),
+        None => (0, false),
+    };
     (rem_block, rem_seconds, cooldown, daily_rem, ceiling_hit)
 }
 
@@ -279,6 +292,13 @@ pub struct PairingCredential {
     pub display_name: String,
     pub age_band: String,
     pub parent_pin_hash: Option<String>,
+    /// The paired child's actual policy from Firestore `policy/current`,
+    /// fetched by the UI host right after `consumePairingToken`. When present
+    /// it replaces every local default before the first timer starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<ChildPolicy>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub app_rules: Vec<AppRule>,
     /// Never logged or serialized to the WebView.
     #[serde(skip_serializing)]
     pub refresh_token: String,

@@ -7,8 +7,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use meritscreen_core::app_config::{
-    HEARTBEAT_INTERVAL_MINUTES, POLICY_PULL_INTERVAL_HOURS, USAGE_FLUSH_INTERVAL_SECONDS,
-    USAGE_UPLOAD_INTERVAL_HOURS,
+    HEARTBEAT_INTERVAL_MINUTES, POLICY_PULL_INTERVAL_HOURS, POLICY_PULL_INTERVAL_SECONDS,
+    USAGE_FLUSH_INTERVAL_SECONDS, USAGE_UPLOAD_INTERVAL_HOURS,
 };
 use meritscreen_core::{DeviceRole, SessionPhase};
 use meritscreen_db::{
@@ -184,11 +184,13 @@ fn sync_tick(
         return;
     }
 
+    // Parent changes must reach enforcement live (was 6h): one small policy
+    // read every POLICY_PULL_INTERVAL_SECONDS, expedited on reconnect/bind.
     let policy_due = flags.expedite_policy.swap(false, Ordering::SeqCst)
         || due(
             ts.last_policy_pull_ms,
             now,
-            i64::from(POLICY_PULL_INTERVAL_HOURS) * 3_600_000,
+            i64::from(POLICY_PULL_INTERVAL_SECONDS) * 1_000,
         );
     if policy_due {
         match rt.block_on(backends.remote.pull_policy(&ids, &id_token)) {

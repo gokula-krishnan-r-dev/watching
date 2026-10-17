@@ -434,6 +434,51 @@ impl ParentSession {
         parse_remote_pairing(&result, auth.as_ref()).await
     }
 
+    /// Local (same-computer / demo) policy + rules for a child, if known.
+    pub fn local_child_policy(&self, child_id: &str) -> Option<(ChildPolicy, Vec<AppRule>)> {
+        let g = self.inner.lock();
+        g.children
+            .get(child_id)
+            .map(|r| (r.policy.clone(), r.app_rules.clone()))
+    }
+
+    /// Fetch a child's live policy from Firestore using the *child device's*
+    /// refresh token (Android `FirestoreChildRemotePolicyClient` parity).
+    /// `Ok(None)` = no live remote, a tester/demo identity, or no policy doc yet.
+    pub async fn fetch_child_policy_for_device(
+        &self,
+        family_id: &str,
+        child_id: &str,
+        refresh_token: &str,
+    ) -> Result<Option<(ChildPolicy, Vec<AppRule>)>, AppError> {
+        let (Some(remote), Some(auth)) = (self.remote.clone(), self.auth.clone()) else {
+            return Ok(None);
+        };
+        if refresh_token.trim().is_empty() {
+            return Ok(None);
+        }
+        // Reuse the cached child ID token while fresh (Guardian does the same);
+        // only refresh when expired, and keep the rotated tokens.
+        let cached = self.secret_store.as_ref().and_then(|st| {
+            st.get(accounts::CHILD_ID_TOKEN).ok().map(|t| t.to_string())
+        });
+        let id_token = match cached.filter(|t| token_is_fresh(t, now_ms())) {
+            Some(t) => t,
+            None => {
+                let tokens = auth
+                    .refresh_id_token(refresh_token)
+                    .await
+                    .map_err(|e| e.to_app_error())?;
+                if let Some(st) = &self.secret_store {
+                    let _ = st.set(accounts::CHILD_ID_TOKEN, &tokens.id_token);
+                    let _ = st.set(accounts::CHILD_REFRESH, &tokens.refresh_token);
+                }
+                tokens.id_token
+            }
+        };
+        remote.load_child_policy(family_id, child_id, &id_token).await
+    }
+
     pub fn is_signed_in(&self) -> bool {
         self.inner.lock().profile.is_some()
     }
@@ -2145,6 +2190,8 @@ pub struct RemotePairing {
     pub age_band: String,
     pub parent_pin_hash: Option<String>,
     pub refresh_token: String,
+    /// Child device's ID token (immediate Firestore policy pull after pairing).
+    pub id_token: String,
 }
 
 async fn parse_remote_pairing(
@@ -2169,6 +2216,7 @@ async fn parse_remote_pairing(
         age_band: s("ageBand"),
         parent_pin_hash: if pin.is_empty() { None } else { Some(pin) },
         refresh_token: tokens.refresh_token,
+        id_token: tokens.id_token,
     })
 }
 

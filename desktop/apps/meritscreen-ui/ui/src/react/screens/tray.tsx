@@ -347,7 +347,8 @@ export function ChildTrayCard({ bridge, actions, initial, onUnpaired }: { bridge
           <div className="h-2 rounded-full bg-primary" style={{ width: `${pct}%` }} />
         </div>
         <p className="m-0 mt-1 text-xs text-muted-foreground">
-          {st.minutesUsedToday} min used today · {st.dailyRemainingMinutes} min left
+          {st.minutesUsedToday} min used today ·{" "}
+          {st.dailyLimitMinutes == null ? "No daily limit" : `${st.dailyRemainingMinutes} min left today`}
           {(st.bonusMinutesToday ?? 0) > 0 && ` (includes ${st.bonusMinutesToday} min bonus)`}
         </p>
       </div>

@@ -53,6 +53,10 @@ pub struct RecentQuestion {
 pub struct PersistedChildSession {
     pub paired: bool,
     pub child_id: Option<String>,
+    #[serde(default)]
+    pub family_id: Option<String>,
+    #[serde(default)]
+    pub device_id: Option<String>,
     pub child_name: String,
     pub pin_hash: Option<String>,
     pub policy: ChildPolicy,
@@ -149,6 +153,8 @@ struct ActiveQuiz {
 struct Inner {
     paired: bool,
     child_id: Option<String>,
+    family_id: Option<String>,
+    device_id: Option<String>,
     child_name: String,
     age_band: AgeBand,
     pin_hash: Option<String>,
@@ -234,6 +240,17 @@ fn award_pass(g: &mut Inner, attempt_id: Option<&str>, source: Option<&str>) -> 
     r
 }
 
+/// Desktop enforcement is device-wide: whatever mode the parent stored
+/// (Android uses per-app blocks), this computer runs one device interval whose
+/// length is the parent's `quizIntervalMinutes` (or their block length when the
+/// policy came from Android). Every other field is the parent's, verbatim.
+pub fn desktop_policy(mut policy: ChildPolicy) -> ChildPolicy {
+    policy.quiz_mode = QuizMode::DeviceInterval;
+    policy.quiz_interval_minutes =
+        meritscreen_core::app_config::coerce_chunk_minutes(policy.quiz_interval_minutes);
+    policy
+}
+
 pub struct ChildRuntime {
     inner: Mutex<Inner>,
 }
@@ -262,14 +279,14 @@ impl ChildRuntime {
         } else {
             "builtin".into()
         };
-        let policy = ChildPolicy {
-            quiz_mode: QuizMode::DeviceInterval,
-            quiz_interval_minutes: 50,
-            ..ChildPolicy::default()
-        };
+        // Pre-pairing placeholder only; `bind_credential` replaces it with the
+        // parent's Firestore policy before any timer starts.
+        let policy = desktop_policy(ChildPolicy::default());
         let mut inner = Inner {
             paired: false,
             child_id: None,
+            family_id: None,
+            device_id: None,
             child_name: String::new(),
             age_band: AgeBand::Age7To9,
             pin_hash: None,
@@ -317,6 +334,8 @@ impl ChildRuntime {
                         if persisted.paired {
                             inner.paired = true;
                             inner.child_id = persisted.child_id;
+                            inner.family_id = persisted.family_id;
+                            inner.device_id = persisted.device_id;
                             inner.child_name = persisted.child_name;
                             inner.pin_hash = persisted.pin_hash;
                             inner.policy = persisted.policy;
@@ -405,6 +424,8 @@ impl ChildRuntime {
         let persisted = PersistedChildSession {
             paired: g.paired,
             child_id: g.child_id.clone(),
+            family_id: g.family_id.clone(),
+            device_id: g.device_id.clone(),
             child_name: g.child_name.clone(),
             pin_hash: g.pin_hash.clone(),
             policy: g.policy.clone(),
@@ -489,6 +510,21 @@ impl ChildRuntime {
         let mut g = self.inner.lock();
         g.paired = true;
         g.child_id = Some(cred.child_id.clone());
+        g.family_id = Some(cred.family_id.clone());
+        g.device_id = Some(cred.device_id.clone());
+        if let Some(policy) = cred.policy.clone() {
+            g.policy = desktop_policy(policy);
+            info!(
+                interval = g.policy.quiz_interval_minutes,
+                ceiling = ?g.policy.daily_ceiling_minutes,
+                "child policy applied from Firestore at pairing"
+            );
+        } else {
+            tracing::warn!("paired without a Firestore policy; local defaults apply only until the first policy sync");
+        }
+        if !cred.app_rules.is_empty() {
+            g.rules = cred.app_rules.clone();
+        }
         g.child_name = if cred.display_name.trim().is_empty() {
             "Friend".to_string()
         } else {
@@ -563,6 +599,8 @@ impl ChildRuntime {
         let mut g = self.inner.lock();
         g.paired = false;
         g.child_id = None;
+        g.family_id = None;
+        g.device_id = None;
         g.child_name.clear();
         g.pin_hash = None;
         g.checklist = default_checklist();
@@ -576,11 +614,7 @@ impl ChildRuntime {
         g.bank = bank;
         g.pack_source = "builtin".into();
         g.secrets_dir = secrets_dir;
-        g.policy = ChildPolicy {
-            quiz_mode: QuizMode::DeviceInterval,
-            quiz_interval_minutes: 50,
-            ..ChildPolicy::default()
-        };
+        g.policy = desktop_policy(ChildPolicy::default());
         g.rules = demo_rules();
         g.app_usage_seconds.clear();
         g.app_display_names.clear();
@@ -626,17 +660,89 @@ impl ChildRuntime {
         Ok(())
     }
 
+    pub fn child_id(&self) -> Option<String> {
+        self.inner.lock().child_id.clone()
+    }
+
+    /// (family, child, device) for the live policy poll; never the refresh token.
+    pub fn pairing_ids(&self) -> Option<(String, String, String)> {
+        let g = self.inner.lock();
+        match (g.family_id.clone(), g.child_id.clone(), g.device_id.clone()) {
+            (Some(f), Some(c), Some(d)) => Some((f, c, d)),
+            _ => None,
+        }
+    }
+
+    /// Point this paired runtime at the parent's actual child record
+    /// (local/demo pairing mints a placeholder id; without this the live
+    /// policy poll could never match the parent's child).
+    pub fn align_child_identity(&self, child_id: &str) -> bool {
+        let mut g = self.inner.lock();
+        if !g.paired || child_id.trim().is_empty() || g.child_id.as_deref() == Some(child_id) {
+            return false;
+        }
+        g.child_id = Some(child_id.to_string());
+        self.save_persisted(&g);
+        true
+    }
+
+    pub fn current_policy(&self) -> ChildPolicy {
+        self.inner.lock().policy.clone()
+    }
+
+    /// Apply a parent policy pulled from Firestore (pairing or live poll).
+    /// Re-times the running block to the new interval, keeps minutes already
+    /// used today, and persists so a restart keeps the parent's setting.
+    /// Returns true when anything actually changed.
+    pub fn apply_policy(&self, policy: ChildPolicy, app_rules: Option<Vec<AppRule>>) -> bool {
+        let policy = desktop_policy(policy);
+        let mut g = self.inner.lock();
+        if !g.paired {
+            return false;
+        }
+        let rules_changed = match &app_rules {
+            Some(r) if !r.is_empty() && *r != g.rules => true,
+            _ => false,
+        };
+        if g.policy == policy && !rules_changed {
+            return false;
+        }
+        info!(
+            interval = policy.quiz_interval_minutes,
+            ceiling = ?policy.daily_ceiling_minutes,
+            bonus = policy.bonus_minutes_today,
+            paused = policy.paused,
+            "child policy updated from parent setting"
+        );
+        g.policy = policy;
+        if rules_changed {
+            g.rules = app_rules.unwrap();
+        }
+        // Re-time a live block, unless a quiz-pass grace window is running.
+        let in_grace = g.session.quiz_grace_until_elapsed_ms.map(|u| g.elapsed_ms < u).unwrap_or(false);
+        if g.session.phase == meritscreen_core::SessionPhase::InBlock && !in_grace {
+            g.session.block_duration_minutes =
+                meritscreen_core::app_config::coerce_chunk_minutes(g.policy.quiz_interval_minutes);
+            if g.session.minutes_accrued_in_block >= g.session.block_duration_minutes as f32 {
+                g.session.phase = meritscreen_core::SessionPhase::QuizDue;
+                g.session.block_started_elapsed_ms = None;
+            }
+        }
+        if g.session.phase == meritscreen_core::SessionPhase::Idle && g.checklist_complete {
+            g.session = SessionEngine::start_device_interval(g.session.clone(), g.elapsed_ms, &g.policy);
+        }
+        self.save_persisted(&g);
+        true
+    }
+
     pub fn ui_state(&self) -> ChildUiState {
         let mut g = self.inner.lock();
         g.session = SessionEngine::expire_shield_if_needed(g.session.clone(), g.elapsed_ms);
         self.clear_quiz_lock_if_expired(&mut g);
         let screen = resolve_screen(&g);
+        let daily_limit = meritscreen_core::session::effective_ceiling_opt(&g.policy, &g.session);
         let (rem_block, rem_sec, cooldown, daily_rem, ceiling_hit) =
-            snapshot_metrics(
-                &g.session,
-                Some(meritscreen_core::session::effective_ceiling(&g.policy, &g.session)),
-                g.elapsed_ms,
-            );
+            snapshot_metrics(&g.session, daily_limit, g.elapsed_ms);
         let bonus_today = g.session.active_bonus_minutes(&g.policy);
         let quiz = g.quiz.as_ref().and_then(|q| {
             q.questions.get(q.index).map(|question| QuizPromptDto {
@@ -736,6 +842,8 @@ impl ChildRuntime {
             block_duration_minutes: g.session.block_duration_minutes,
             cooldown_seconds: cooldown,
             daily_remaining_minutes: daily_rem,
+            daily_limit_minutes: daily_limit,
+            quiz_interval_minutes: g.policy.quiz_interval_minutes,
             ceiling_hit,
             bonus_minutes_today: bonus_today,
             quiz,
@@ -1217,8 +1325,10 @@ fn resolve_screen(g: &Inner) -> ChildScreen {
         SessionPhase::QuizDue => ChildScreen::Quiz,
         SessionPhase::Shielded => ChildScreen::FailLock,
         SessionPhase::Idle | SessionPhase::InBlock => {
-            let ceiling = meritscreen_core::session::effective_ceiling(&g.policy, &g.session);
-            if g.session.minutes_used_today >= ceiling && g.session.phase == SessionPhase::Idle {
+            let ceiling_hit = meritscreen_core::session::effective_ceiling_opt(&g.policy, &g.session)
+                .map(|c| g.session.minutes_used_today >= c)
+                .unwrap_or(false);
+            if ceiling_hit && g.session.phase == SessionPhase::Idle {
                 ChildScreen::Ceiling
             } else {
                 g.screen_override.unwrap_or(ChildScreen::Launcher)
@@ -1408,6 +1518,8 @@ mod tests {
             display_name: "Asha".into(),
             age_band: "AGE_7_TO_9".into(),
             parent_pin_hash: Some(meritscreen_security::hash_parent_pin("5791")),
+            policy: None,
+            app_rules: Vec::new(),
             refresh_token: "rt".into(),
         };
         rt.bind_credential(&cred).unwrap();
@@ -1422,6 +1534,101 @@ mod tests {
         let rt2 = super::ChildRuntime::with_secrets_dir(tempfile::tempdir().unwrap().path());
         assert!(rt2.bind_credential(&no_pin).is_err());
         assert!(!rt2.is_paired());
+    }
+
+    fn cred_with_policy(policy: ChildPolicy) -> crate::models::PairingCredential {
+        crate::models::PairingCredential {
+            family_id: "fam1".into(),
+            child_id: "kid1".into(),
+            device_id: "dev12345".into(),
+            display_name: "Asha".into(),
+            age_band: "AGE_7_TO_9".into(),
+            parent_pin_hash: Some(meritscreen_security::hash_parent_pin("5791")),
+            policy: Some(policy),
+            app_rules: Vec::new(),
+            refresh_token: "rt".into(),
+        }
+    }
+
+    #[test]
+    fn paired_child_uses_parent_15_minute_policy_not_50_or_120() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = super::ChildRuntime::with_secrets_dir(dir.path());
+        let policy = ChildPolicy {
+            quiz_mode: meritscreen_core::QuizMode::AppBlock,
+            quiz_interval_minutes: 15,
+            daily_ceiling_minutes: Some(15),
+            ..ChildPolicy::default()
+        };
+        rt.bind_credential(&cred_with_policy(policy)).unwrap();
+        let st = rt.ui_state();
+        assert_eq!(st.quiz_interval_minutes, 15);
+        assert_eq!(st.block_duration_minutes, 15, "first block is the parent's interval");
+        assert_eq!(st.seconds_remaining_block, 900);
+        assert_eq!(st.daily_limit_minutes, Some(15));
+        assert_eq!(st.daily_remaining_minutes, 15, "not the fabricated 120");
+        assert_eq!(rt.pairing_ids().unwrap().1, "kid1");
+    }
+
+    #[test]
+    fn parent_policy_change_propagates_to_live_child() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = super::ChildRuntime::with_secrets_dir(dir.path());
+        let policy = ChildPolicy {
+            quiz_interval_minutes: 30,
+            daily_ceiling_minutes: Some(60),
+            ..ChildPolicy::default()
+        };
+        rt.bind_credential(&cred_with_policy(policy)).unwrap();
+        // Parent lowers both values (Time limits screen / Android / console).
+        let changed = ChildPolicy {
+            quiz_interval_minutes: 15,
+            daily_ceiling_minutes: Some(15),
+            ..ChildPolicy::default()
+        };
+        assert!(rt.apply_policy(changed.clone(), None));
+        let st = rt.ui_state();
+        assert_eq!(st.block_duration_minutes, 15, "running block re-timed without restart");
+        assert_eq!(st.daily_limit_minutes, Some(15));
+        assert_eq!(st.daily_remaining_minutes, 15);
+        // Same policy again is a no-op (poll dedup).
+        assert!(!rt.apply_policy(changed, None));
+        // Removing the daily limit reads as no limit, not 120.
+        let mut no_limit = rt.current_policy();
+        no_limit.daily_ceiling_minutes = None;
+        assert!(rt.apply_policy(no_limit, None));
+        let st = rt.ui_state();
+        assert_eq!(st.daily_limit_minutes, None);
+        assert!(!st.ceiling_hit);
+    }
+
+    #[test]
+    fn placeholder_child_id_aligns_to_parent_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = super::ChildRuntime::with_secrets_dir(dir.path());
+        rt.pair("424242", Some("Sam")).unwrap();
+        assert!(rt.child_id().unwrap().starts_with("child-"));
+        assert!(rt.align_child_identity("child-real-1"));
+        assert_eq!(rt.child_id().as_deref(), Some("child-real-1"));
+        assert!(!rt.align_child_identity("child-real-1"));
+    }
+
+    #[test]
+    fn parent_policy_survives_child_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let policy = ChildPolicy {
+            quiz_interval_minutes: 15,
+            daily_ceiling_minutes: Some(45),
+            ..ChildPolicy::default()
+        };
+        {
+            let rt = super::ChildRuntime::with_secrets_dir(dir.path());
+            rt.bind_credential(&cred_with_policy(policy)).unwrap();
+        }
+        let rt2 = super::ChildRuntime::with_secrets_dir(dir.path());
+        let st = rt2.ui_state();
+        assert_eq!(st.daily_limit_minutes, Some(45));
+        assert_eq!(st.quiz_interval_minutes, 15);
     }
 
     #[test]

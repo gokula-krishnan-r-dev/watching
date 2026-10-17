@@ -20,7 +20,7 @@ describe("tray", () => {
   });
 
   it("child tray requires a PIN to exit and has no default-PIN hint", async () => {
-    const st = { paired: true, screen: "launcher", childName: "Mia", minutesUsedToday: 5, minutesRemainingBlock: 10, secondsRemainingBlock: 600, blockDurationMinutes: 15, dailyRemainingMinutes: 60 };
+    const st = { paired: true, screen: "launcher", childName: "Mia", minutesUsedToday: 5, minutesRemainingBlock: 10, secondsRemainingBlock: 600, blockDurationMinutes: 15, dailyRemainingMinutes: 60, dailyLimitMinutes: 60 };
     const b = mockBridge({}, (c) => (c === "child_ui_state" ? st : c === "child_exit_with_pin" ? Promise.reject("Incorrect PIN") : true));
     render(<TrayPopover bridge={b} actions={actions()} />);
     fireEvent.click(await screen.findByRole("button", { name: /Exit/ }));
@@ -29,6 +29,18 @@ describe("tray", () => {
     "9876".split("").forEach((d, i) => fireEvent.change(inputs[i], { target: { value: d } }));
     await waitFor(() => expect(b.invoke).toHaveBeenCalledWith("child_exit_with_pin", { pin: "9876" }));
     expect(await screen.findByRole("alert")).toBeInTheDocument();
+  });
+
+  it("child tray shows the parent's daily limit, and no limit when none is set", async () => {
+    const base = { paired: true, screen: "launcher", childName: "Mia", minutesUsedToday: 5, minutesRemainingBlock: 10, secondsRemainingBlock: 600, blockDurationMinutes: 15, dailyRemainingMinutes: 10 };
+    const b1 = mockBridge({}, (c) => (c === "child_ui_state" ? { ...base, dailyLimitMinutes: 15 } : true));
+    const { unmount } = render(<TrayPopover bridge={b1} actions={actions()} />);
+    expect(await screen.findByText(/10 min left today/)).toBeInTheDocument();
+    unmount();
+    const b2 = mockBridge({}, (c) => (c === "child_ui_state" ? { ...base, dailyLimitMinutes: null } : true));
+    render(<TrayPopover bridge={b2} actions={actions()} />);
+    expect(await screen.findByText(/No daily limit/)).toBeInTheDocument();
+    expect(screen.queryByText(/120 min left/)).toBeNull();
   });
 
   it("bonus buttons grant today-only time; emergency needs confirmation; limit untouched", async () => {

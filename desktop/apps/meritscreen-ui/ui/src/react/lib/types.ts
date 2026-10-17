@@ -140,6 +140,9 @@ export interface ChildUiState {
   blockDurationMinutes?: number;
   cooldownSeconds: number;
   dailyRemainingMinutes: number;
+  /** Parent's daily limit incl. bonus; null/absent = no daily limit set. */
+  dailyLimitMinutes?: number | null;
+  quizIntervalMinutes?: number;
   ceilingHit: boolean;
   bonusMinutesToday?: number;
   quiz: QuizPrompt | null;

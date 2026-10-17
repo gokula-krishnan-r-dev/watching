@@ -228,6 +228,37 @@ impl ParentRemote {
         }))
     }
 
+    /// One child's policy + app rules (`policy/current`), for a paired child
+    /// device polling with its own child credentials.
+    pub async fn load_child_policy(
+        &self,
+        family_id: &str,
+        child_id: &str,
+        token: &str,
+    ) -> Result<Option<(ChildPolicy, Vec<AppRule>)>, AppError> {
+        let base = format!("families/{family_id}/children/{child_id}");
+        let Some(policy_doc) = self
+            .firestore
+            .get_document(&format!("{base}/policy/current"), token)
+            .await
+            .map_err(map_err)?
+        else {
+            return Ok(None);
+        };
+        let policy = policy_from_value(&policy_doc);
+        let rules = self
+            .firestore
+            .get_document(&format!("{base}/appRules"), token)
+            .await
+            .map_err(map_err)?
+            .and_then(|v| v["documents"].as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .map(|r| app_rule_from_value(&doc_id(r), r))
+            .collect();
+        Ok(Some((policy, rules)))
+    }
+
     /// Create family + owner membership + user pointer + first child (Android `createFamily`).
     #[allow(clippy::too_many_arguments)]
     pub async fn create_family(
@@ -436,6 +467,37 @@ mod tests {
             assert!(v.get(k).is_some(), "missing {k}");
         }
         assert_eq!(v["failLockScope"], "all_non_emergency");
+    }
+
+    #[tokio::test]
+    async fn load_child_policy_reads_parent_setting() {
+        let fs = Arc::new(MockFirestoreClient::default());
+        {
+            let mut d = fs.docs.lock().unwrap();
+            d.insert(
+                "families/f1/children/c1/policy/current".into(),
+                json!({"fields": {
+                    "quizMode": {"stringValue": "device_interval"},
+                    "quizIntervalMinutes": {"integerValue": "15"},
+                    "dailyCeilingMinutes": {"integerValue": "15"}
+                }}),
+            );
+            d.insert(
+                "families/f1/children/c1/appRules".into(),
+                json!({"documents": [{"name": "x/appRules/a1", "fields": {
+                    "packageOrBundleId": {"stringValue": "com.example.app"},
+                    "blockMinutes": {"integerValue": "15"},
+                    "grantOnPassMinutes": {"integerValue": "20"}
+                }}]}),
+            );
+        }
+        let r = ParentRemote::new(fs, Arc::new(MockCallableClient::default()), "p");
+        let (policy, rules) = r.load_child_policy("f1", "c1", "t").await.unwrap().unwrap();
+        assert_eq!(policy.quiz_interval_minutes, 15);
+        assert_eq!(policy.daily_ceiling_minutes, Some(15));
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].grant_on_pass_minutes, 20);
+        assert!(r.load_child_policy("f1", "missing", "t").await.unwrap().is_none());
     }
 
     #[tokio::test]
