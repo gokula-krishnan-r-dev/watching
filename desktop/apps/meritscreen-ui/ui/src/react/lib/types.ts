@@ -122,13 +122,9 @@ export interface ChildChecklistItem {
   recommended: boolean;
 }
 export interface QuizPrompt {
-  id: string;
-  prompt: string;
-  choices: { id: string; text: string }[];
-  index: number;
-  total: number;
-  teachTitle: string | null;
-  teachBody: string[];
+  id: string; prompt: string; choices: QuizChoice[]; index: number; total: number;
+  teachTitle: string | null; teachBody: string[];
+  interactionType?: string; promptTag?: string | null; promptCount?: number | null;
 }
 export interface ChildUiState {
   paired: boolean;
@@ -147,7 +143,15 @@ export interface ChildUiState {
   ceilingHit: boolean;
   bonusMinutesToday?: number;
   quiz: QuizPrompt | null;
-  quizLock: { remainingSeconds: number; conceptLine: string } | null;
+  quizLock: QuizLock | null;
+  quizError?: string | null;
+  showExplanations?: boolean;
+  earlyLearner?: boolean;
+  explorer?: ExplorerProgress;
+  stickers?: StickerUnlock[];
+  lastAward?: LastAward | null;
+  nursery?: NurseryState | null;
+  canRetryDuringCooldown?: boolean;
   lastFeedback: { correct: boolean; resultLine: string; whyLine: string; conceptLine: string } | null;
   lastResult: { passed: boolean; correctCount: number; total: number; percent: number } | null;
   packSource: string;
@@ -155,6 +159,15 @@ export interface ChildUiState {
   activeAppId?: string | null;
   activeAppName?: string | null;
 }
+
+export interface QuizChoice { id: string; text: string; imageTag?: string | null; audioKey?: string | null }
+export interface QuizLock { remainingSeconds: number; conceptLine: string; whyLine?: string; correctChoiceText?: string; lessonTitle?: string; lessonBody?: string[] }
+export interface ExplorerProgress { xp: number; explorerLevel: number; passStreakDays: number; lastPassDayKey?: string | null }
+export interface StickerUnlock { unlockId: string; stickerId: string; stage: string; title: string; emoji: string; source: string; attemptId?: string | null; unlockedAtEpochMs: number; xpAtUnlock: number }
+export interface LastAward { stickerTitle: string | null; stickerEmoji: string | null; stickerStageLabel: string | null; xpGained: number; leveledUp: boolean; weekendBonusApplied: boolean }
+export interface NurseryVideo { videoId: string; title: string; maxSeconds: number; channel: string }
+export interface NurseryTeachItem { id: string; tag: string; title: string; subtitle: string; emoji: string; speechText: string; colorHex: string; count?: number | null }
+export interface NurseryState { video: NurseryVideo | null; videoCategory: string | null; items: NurseryTeachItem[] }
 
 /* ── Dashboard analytics (parent_family_insights) ── */
 export interface DayPoint { day: string; minutes: number }

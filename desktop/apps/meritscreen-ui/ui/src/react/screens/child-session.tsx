@@ -1,6 +1,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { CheckCircle2, KeyRound, Minimize2, PartyPopper, Rocket, ShieldCheck, Timer } from "lucide-react";
+import { BookOpen, CheckCircle2, Flame, KeyRound, Minimize2, PartyPopper, Play, RotateCcw, Rocket, ShieldCheck, Sparkles, Timer, Trophy, Volume2 } from "lucide-react";
+import { visualEmoji, visualLabel } from "../lib/visual";
 import type { AppBridge } from "../bridge";
 import type { ChildUiState } from "../lib/types";
 import { t } from "../../i18n";
@@ -15,7 +16,22 @@ import { ErrorState } from "../components/states";
 import { friendlyError } from "../lib/errors";
 import { cn } from "../lib/utils";
 
-export const SESSION_SCREENS = ["checklist", "launcher", "quiz", "fail_lock", "ceiling"] as const;
+export const SESSION_SCREENS = ["checklist", "launcher", "quiz", "nursery", "fail_lock", "ceiling"] as const;
+
+/** Read-aloud (Android QuizTtsNarrator: offline TTS, rate 0.85, pitch 1.05). */
+export function speak(text: string): void {
+  try {
+    const synth = window.speechSynthesis;
+    if (!synth || !text.trim()) return;
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 0.85;
+    u.pitch = 1.05;
+    synth.speak(u);
+  } catch {
+    /* TTS unavailable — text stays on screen */
+  }
+}
 
 function fmtTimer(sec: number): string {
   const s = Math.max(0, Math.round(sec));
@@ -113,6 +129,7 @@ export function ChildSessionScreen({ bridge, initial, autoMinimize = true }: { b
   if (passed) body = <QuizPassed st={passed} onResume={() => void finishQuiz()} />;
   else if (st.screen === "checklist") body = <Checklist bridge={bridge} st={st} setSt={setSt} onDone={() => void bridge.navigate({ name: "child" })} />;
   else if (st.screen === "launcher") body = <Launcher bridge={bridge} st={st} autoMinimize={autoMinimize} onPin={() => void openPinMenu()} onRefresh={refresh} />;
+  else if (st.screen === "nursery") body = <Nursery bridge={bridge} st={st} onDone={(u) => setPassed(u)} />;
   else if (st.screen === "quiz")
     body = (
       <Quiz
@@ -306,6 +323,8 @@ function Launcher({ bridge, st, autoMinimize, onPin, onRefresh }: { bridge: AppB
         )}
       </Card>
 
+      <StickerBook st={st} />
+
       <div className="flex flex-wrap gap-2">
         <Button variant="secondary" loading={busy} onClick={() => void quizEarly()}>
           <Rocket className="h-4 w-4" aria-hidden="true" /> Take a quiz early
@@ -385,6 +404,18 @@ function Quiz({ bridge, st, skipOpen, onSkip, onAnswered }: { bridge: AppBridge;
     return () => window.removeEventListener("keydown", onKey);
   }, [q, lock, skipOpen, answer]);
 
+  // Early learners hear the question (Android auto-narrates 3–6 prompts + lock lessons).
+  const promptId = q?.id;
+  const lockSeconds = lock?.remainingSeconds ?? 0;
+  React.useEffect(() => {
+    if (st.earlyLearner && promptId && lockSeconds === 0) speak(q?.prompt ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promptId, st.earlyLearner]);
+  React.useEffect(() => {
+    if (lockSeconds > 0 && lock) speak(`Not quite. ${lock.lessonBody?.[0] ?? lock.conceptLine} The correct answer is ${lock.correctChoiceText ?? ""}.`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lock?.conceptLine]);
+
   const skipBtn = (
     <div className="mt-5 border-t border-white/10 pt-4 text-center">
       <Button variant="ghost" size="sm" className="text-slate-300 hover:bg-white/10 hover:text-white" onClick={onSkip}>
@@ -396,10 +427,22 @@ function Quiz({ bridge, st, skipOpen, onSkip, onAnswered }: { bridge: AppBridge;
   if (lock && lock.remainingSeconds > 0) {
     return (
       <Overlay labelledBy="quiz-lock-title">
-        <h1 id="quiz-lock-title" className="m-0 text-2xl font-bold text-amber-300">
-          {t("child_quiz_lock_title")}
+        <h1 id="quiz-lock-title" className="m-0 flex items-center gap-2 text-2xl font-bold text-amber-300">
+          <BookOpen className="h-6 w-6" aria-hidden="true" /> {t("child_quiz_lock_title")}
         </h1>
-        <p className="mt-2 text-base">{lock.conceptLine || "Review the idea, then try again."}</p>
+        {lock.whyLine && <p className="mt-2 text-base text-red-300">{lock.whyLine}</p>}
+        <div className="mt-3 rounded-lg bg-white/5 p-3">
+          <strong>{lock.lessonTitle || "Remember"}</strong>
+          {(lock.lessonBody ?? [lock.conceptLine]).map((l, i) => (
+            <p key={i} className="m-0 mt-1 text-slate-200">{l}</p>
+          ))}
+          {lock.correctChoiceText && (
+            <p className="m-0 mt-2 font-semibold text-emerald-300">Correct answer: {lock.correctChoiceText}</p>
+          )}
+        </div>
+        <button type="button" onClick={() => speak(`${lock.lessonTitle ?? ""}. ${(lock.lessonBody ?? []).join(" ")} The correct answer is ${lock.correctChoiceText ?? ""}.`)} className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
+          <Volume2 className="h-4 w-4" aria-hidden="true" /> Listen
+        </button>
         <p className="my-4 font-mono text-5xl font-bold text-amber-400" aria-live="polite" aria-atomic="true" aria-label={t("a11y_cooldown_timer", { seconds: lock.remainingSeconds })}>
           {lock.remainingSeconds}s
         </p>
@@ -413,10 +456,13 @@ function Quiz({ bridge, st, skipOpen, onSkip, onAnswered }: { bridge: AppBridge;
     return (
       <Overlay label={t("a11y_quiz_dialog")}>
         <h1 className="m-0 text-xl font-bold">{t("a11y_quiz_dialog")}</h1>
-        <p className="text-slate-400">Loading question…</p>
+        <p className="text-slate-400">{st.quizError ?? "Loading question…"}</p>
       </Overlay>
     );
   }
+
+  const visual = q.interactionType && q.interactionType !== "TAP_TEXT";
+  const promptVisual = q.promptTag ? visualEmoji(q.promptTag) : "";
 
   const fb = st.lastFeedback;
   return (
@@ -432,7 +478,15 @@ function Quiz({ bridge, st, skipOpen, onSkip, onAnswered }: { bridge: AppBridge;
       </div>
       <h1 id="quiz-prompt" className="m-0 mb-4 text-2xl font-bold leading-snug text-white">
         {q.prompt}
+        <button type="button" onClick={() => speak(q.prompt)} aria-label="Listen to the question" className="ml-2 inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/10 align-middle text-white hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
+          <Volume2 className="h-4 w-4" aria-hidden="true" />
+        </button>
       </h1>
+      {visual && (promptVisual || (q.promptCount ?? 0) > 0) && (
+        <div className="mb-4 flex flex-wrap items-center gap-1 text-4xl" aria-hidden="true">
+          {promptVisual && q.promptCount ? Array.from({ length: q.promptCount }, (_, i) => <span key={i}>{promptVisual}</span>) : promptVisual}
+        </div>
+      )}
       {(q.teachTitle || q.teachBody.length > 0) && (
         <div className="mb-4 rounded-lg bg-white/5 p-3 text-sm">
           <strong>{q.teachTitle ?? "Remember"}</strong>
@@ -443,7 +497,7 @@ function Quiz({ bridge, st, skipOpen, onSkip, onAnswered }: { bridge: AppBridge;
           ))}
         </div>
       )}
-      {fb && (
+      {fb && st.showExplanations !== false && (
         <p className={cn("mb-3 text-sm font-semibold", fb.correct ? "text-emerald-400" : "text-red-400")} aria-live="polite">
           {fb.resultLine} — {fb.whyLine}
         </p>
@@ -458,7 +512,10 @@ function Quiz({ bridge, st, skipOpen, onSkip, onAnswered }: { bridge: AppBridge;
             onClick={() => void answer(c.id)}
             className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-left text-base font-semibold text-white transition hover:border-emerald-400 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:opacity-60"
           >
-            <span>{c.text}</span>
+            <span className="flex items-center gap-3">
+              {visualEmoji(c.imageTag) && <span className="text-4xl" aria-hidden="true">{visualEmoji(c.imageTag)}</span>}
+              <span>{c.text || visualLabel(c.imageTag)}</span>
+            </span>
             <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/10 font-mono text-sm">
               {i + 1}
             </span>
@@ -491,10 +548,25 @@ function QuizPassed({ st, onResume }: { st: ChildUiState; onResume: () => void }
         <p className="m-0 text-lg">
           You passed. <strong>+{grantedMinutes(st)} minutes</strong> of screen time.
         </p>
-        {st.lastResult && (
+        {st.lastResult && st.lastResult.total > 0 && (
           <p className="m-0 text-sm text-slate-400">
             {st.lastResult.correctCount} of {st.lastResult.total} correct ({st.lastResult.percent}%)
           </p>
+        )}
+        {st.lastAward && (st.lastAward.xpGained > 0 || st.lastAward.stickerTitle) && (
+          <div className="flex flex-col items-center gap-1" aria-live="polite">
+            {st.lastAward.stickerTitle && (
+              <p className="m-0 rounded-full bg-amber-400/20 px-4 py-1.5 text-lg font-bold text-amber-300">
+                {st.lastAward.stickerEmoji} New sticker: {st.lastAward.stickerTitle}
+                {st.lastAward.stickerStageLabel && <span className="text-sm font-semibold"> · {st.lastAward.stickerStageLabel}</span>}
+              </p>
+            )}
+            <p className="m-0 text-sm text-slate-300">
+              +{st.lastAward.xpGained} XP{st.explorer && ` · Explorer level ${st.explorer.explorerLevel}`}
+              {st.lastAward.leveledUp && " · Level up! 🎉"}
+              {st.lastAward.weekendBonusApplied && " · Weekend bonus"}
+            </p>
+          </div>
         )}
         <p className="m-0 text-sm text-slate-400" aria-live="polite">
           Continuing in {n}s…
@@ -526,6 +598,13 @@ function FailLock({ bridge, st, onSkip, onPin, onRefresh }: { bridge: AppBridge;
         {fmtTimer(st.cooldownSeconds)}
       </p>
       <div className="flex flex-wrap gap-2">
+        {st.canRetryDuringCooldown && (
+          <Button
+            onClick={() => void bridge.invoke("child_retry_quiz").then(() => onRefresh()).catch((e) => bridge.toast(friendlyError(e), "error"))}
+          >
+            <RotateCcw className="h-4 w-4" aria-hidden="true" /> Try the quiz again
+          </Button>
+        )}
         <Button variant="secondary" onClick={onSkip}>
           <KeyRound className="h-4 w-4" aria-hidden="true" /> Skip with parent PIN
         </Button>
@@ -602,5 +681,131 @@ function SkipWithPinDialog({ bridge, open, onClose, onSkipped }: { bridge: AppBr
       <PinInput value={pin} onChange={setPin} onComplete={(v) => void submit(v)} invalid={!!err} autoFocus disabled={busy} />
       {err && <p className="m-0 text-sm font-semibold text-destructive" role="alert">{err}</p>}
     </Dialog>
+  );
+}
+
+/* ───────────────────────── Nursery (early learners, teach first) ───────────────────────── */
+
+function Nursery({ bridge, st, onDone }: { bridge: AppBridge; st: ChildUiState; onDone: (u: ChildUiState) => void }) {
+  const n = st.nursery;
+  const [showCards, setShowCards] = React.useState(!n?.video);
+  const [busy, setBusy] = React.useState(false);
+  const [idx, setIdx] = React.useState(0);
+
+  React.useEffect(() => {
+    if (n?.video) speak(`Let's watch and learn, ${st.childName}!`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!n) {
+    return (
+      <Overlay label="Nursery">
+        <h1 className="m-0 text-xl font-bold">Loading your lesson…</h1>
+      </Overlay>
+    );
+  }
+  const item = n.items[Math.min(idx, Math.max(0, n.items.length - 1))];
+  const finish = async () => {
+    setBusy(true);
+    try {
+      onDone(await bridge.invoke<ChildUiState>("child_complete_nursery"));
+    } catch (e) {
+      bridge.toast(friendlyError(e), "error");
+      setBusy(false);
+    }
+  };
+  return (
+    <Overlay labelledBy="nursery-title">
+      <Badge variant="outline" className="border-white/20 text-slate-200">Learning time, {st.childName}!</Badge>
+      <h1 id="nursery-title" className="m-0 mb-3 mt-3 text-3xl font-bold text-white">
+        {showCards ? "Tap, listen and learn" : n.video?.title}
+      </h1>
+      {!showCards && n.video ? (
+        <div className="flex flex-col gap-3">
+          <div className="aspect-video w-full overflow-hidden rounded-xl bg-black">
+            <iframe
+              title={n.video.title}
+              src={`https://www.youtube-nocookie.com/embed/${n.video.videoId}?rel=0`}
+              className="h-full w-full"
+              allow="accelerometer; encrypted-media; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+          <p className="m-0 text-sm text-slate-400">
+            {n.video.channel} · up to {Math.round(n.video.maxSeconds / 60)} min
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => setShowCards(true)}>
+              <BookOpen className="h-4 w-4" aria-hidden="true" /> Use learning cards instead
+            </Button>
+            <Button loading={busy} onClick={() => void finish()}>
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> I finished watching
+            </Button>
+          </div>
+        </div>
+      ) : item ? (
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="flex h-36 w-full flex-col items-center justify-center gap-1 rounded-2xl" style={{ backgroundColor: item.colorHex }}>
+            <span className="text-7xl" aria-hidden="true">{item.emoji}</span>
+            {item.count != null && <span className="text-lg font-bold text-slate-800">{Array.from({ length: item.count }, () => item.emoji).join(" ")}</span>}
+          </div>
+          <h2 className="m-0 text-2xl font-bold text-white">{item.title}</h2>
+          <p className="m-0 text-slate-300">{item.speechText}</p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button variant="secondary" onClick={() => speak(item.speechText)}>
+              <Volume2 className="h-4 w-4" aria-hidden="true" /> Listen
+            </Button>
+            {idx < n.items.length - 1 ? (
+              <Button onClick={() => { const next = idx + 1; setIdx(next); speak(n.items[next].speechText); }}>
+                <Play className="h-4 w-4" aria-hidden="true" /> Next card
+              </Button>
+            ) : (
+              <Button loading={busy} onClick={() => void finish()}>
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> All done!
+              </Button>
+            )}
+          </div>
+          <p className="m-0 text-xs text-slate-400" aria-live="polite">Card {idx + 1} of {n.items.length}</p>
+        </div>
+      ) : (
+        <Button loading={busy} onClick={() => void finish()}>Continue</Button>
+      )}
+    </Overlay>
+  );
+}
+
+/* ───────────────────────── Sticker book (launcher) ───────────────────────── */
+
+function StickerBook({ st }: { st: ChildUiState }) {
+  const ex = st.explorer;
+  if (!ex) return null;
+  const owned = st.stickers ?? [];
+  return (
+    <Card className="flex flex-col gap-2 p-4" aria-labelledby="sticker-book-title">
+      <h2 id="sticker-book-title" className="m-0 flex flex-wrap items-center gap-2 text-sm font-bold">
+        <Trophy className="h-4 w-4 text-amber-500" aria-hidden="true" /> My sticker book
+        <Badge variant="outline">Explorer level {ex.explorerLevel}</Badge>
+        <span className="font-semibold text-muted-foreground">{ex.xp} XP</span>
+        {ex.passStreakDays > 1 && (
+          <span className="inline-flex items-center gap-1 font-semibold text-amber-600">
+            <Flame className="h-4 w-4" aria-hidden="true" /> {ex.passStreakDays}-day streak
+          </span>
+        )}
+      </h2>
+      {owned.length ? (
+        <ul className="m-0 flex list-none flex-wrap gap-2 p-0" aria-label="My stickers">
+          {owned.map((u) => (
+            <li key={u.unlockId} title={`${u.title} (${u.stage.toLowerCase()})`} className="flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 text-sm font-semibold">
+              <span aria-hidden="true">{u.emoji}</span> {u.title}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="m-0 flex items-center gap-1.5 text-sm text-muted-foreground">
+          <Sparkles className="h-4 w-4" aria-hidden="true" /> Pass a quiz to earn your first sticker!
+        </p>
+      )}
+      <p className="m-0 text-xs text-muted-foreground">{owned.length} of 20 stickers collected</p>
+    </Card>
   );
 }

@@ -51,6 +51,7 @@ type ChildScreen =
   | "checklist"
   | "launcher"
   | "quiz"
+  | "nursery"
   | "fail_lock"
   | "ceiling"
   | "pin_menu";

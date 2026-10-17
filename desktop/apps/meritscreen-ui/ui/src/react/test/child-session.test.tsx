@@ -39,6 +39,48 @@ describe("ChildSessionScreen", () => {
     vi.useRealTimers();
   });
 
+  it("nursery teach-first completes and celebrates the sticker", async () => {
+    const doneState: ChildUiState = {
+      ...base, screen: "launcher",
+      explorer: { xp: 10, explorerLevel: 1, passStreakDays: 1 },
+      stickers: [{ unlockId: "stk_c1_sprout_star", stickerId: "sprout_star", stage: "SPROUT", title: "Bright Star", emoji: "⭐", source: "NURSERY_TEACH", unlockedAtEpochMs: 1, xpAtUnlock: 10 }],
+      lastAward: { stickerTitle: "Bright Star", stickerEmoji: "⭐", stickerStageLabel: "Sprout", xpGained: 10, leveledUp: false, weekendBonusApplied: false },
+    };
+    const b = mockBridge({}, (c) => (c === "child_complete_nursery" ? doneState : base));
+    const nursery: ChildUiState = {
+      ...base, screen: "nursery", earlyLearner: true,
+      nursery: { video: null, videoCategory: null, items: [{ id: "a_apple", tag: "apple", title: "A for Apple", subtitle: "Letter A", emoji: "🍎", speechText: "A is for Apple!", colorHex: "#FFEBEE", count: null }] },
+    };
+    render(<ChildSessionScreen bridge={b} initial={nursery} autoMinimize={false} />);
+    expect(screen.getByText("A for Apple")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /All done/ }));
+    await waitFor(() => expect(b.invoke).toHaveBeenCalledWith("child_complete_nursery"));
+    expect(await screen.findByText(/New sticker: Bright Star/)).toBeInTheDocument();
+  });
+
+  it("locked learn-more shows the lesson and correct answer", () => {
+    const b = mockBridge({}, () => base);
+    const locked: ChildUiState = {
+      ...base, screen: "quiz",
+      quiz: { id: "q", prompt: "How many apples?", choices: [{ id: "a", text: "3" }], index: 1, total: 3, teachTitle: null, teachBody: [] },
+      quizLock: { remainingSeconds: 29, conceptLine: "Count carefully.", whyLine: "That was 2.", correctChoiceText: "3", lessonTitle: "Counting", lessonBody: ["Count each apple once: 1, 2, 3."] },
+    };
+    render(<ChildSessionScreen bridge={b} initial={locked} autoMinimize={false} />);
+    expect(screen.getByText("Count each apple once: 1, 2, 3.")).toBeInTheDocument();
+    expect(screen.getByText(/Correct answer: 3/)).toBeInTheDocument();
+  });
+
+  it("visual choices render taxonomy emoji and speak buttons", () => {
+    const b = mockBridge({}, () => base);
+    const visual: ChildUiState = {
+      ...base, screen: "quiz", earlyLearner: true,
+      quiz: { id: "v", prompt: "Which one is the dog?", choices: [{ id: "a", text: "Dog", imageTag: "dog" }, { id: "b", text: "Cat", imageTag: "cat" }], index: 0, total: 3, teachTitle: null, teachBody: [], interactionType: "TAP_IMAGE" },
+    };
+    render(<ChildSessionScreen bridge={b} initial={visual} autoMinimize={false} />);
+    expect(screen.getByText("🐶")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Listen to the question" })).toBeInTheDocument();
+  });
+
   it("checklist completes", async () => {
     const b = mockBridge({}, () => undefined);
     render(<ChildSessionScreen bridge={b} initial={{ ...base, screen: "checklist", checklist: [{ id: "x", label: "Allow accessibility", done: false, recommended: true }] }} autoMinimize={false} />);
