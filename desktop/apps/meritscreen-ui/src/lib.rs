@@ -689,9 +689,44 @@ fn child_answer_quiz(
     choice_id: String,
     state: State<'_, AppState>,
 ) -> Result<ChildUiState, String> {
-    state
+    let out = state
         .child
         .answer_quiz(&choice_id)
+        .map_err(|e| e.user_message().to_string());
+    if out.is_ok() {
+        forward_quiz_attempts(&state);
+    }
+    out
+}
+
+/// Hand completed quiz attempts to the Guardian, which uploads them to
+/// `families/{f}/children/{c}/quizAttempts/{attemptId}` (best effort, like pairing).
+fn forward_quiz_attempts(state: &AppState) {
+    for attempt in state.child.drain_pending_attempts() {
+        let Ok(json) = serde_json::to_string(&attempt) else { continue };
+        let req = meritscreen_ipc::IpcRequest::QuizCompleted { attempt_json: json };
+        std::thread::spawn(move || match meritscreen_ipc::IpcConn::connect() {
+            Ok(mut conn) => {
+                let _ = conn.call(&req);
+            }
+            Err(e) => tracing::warn!(error = %e, "guardian not reachable; quiz attempt kept for parent telemetry"),
+        });
+    }
+}
+
+#[tauri::command]
+fn child_complete_nursery(state: State<'_, AppState>) -> Result<ChildUiState, String> {
+    state
+        .child
+        .complete_nursery()
+        .map_err(|e| e.user_message().to_string())
+}
+
+#[tauri::command]
+fn child_retry_quiz(state: State<'_, AppState>) -> Result<ChildUiState, String> {
+    state
+        .child
+        .retry_quiz_during_cooldown()
         .map_err(|e| e.user_message().to_string())
 }
 
@@ -1442,6 +1477,8 @@ pub fn run() {
             child_tick,
             child_force_quiz,
             child_answer_quiz,
+            child_complete_nursery,
+            child_retry_quiz,
             child_skip_quiz_with_pin,
             exit_quiz_blocking,
             child_open_pin_menu,

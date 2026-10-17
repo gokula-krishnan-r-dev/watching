@@ -305,7 +305,7 @@ impl ChildRuntime {
             nursery: None,
             nursery_recent_videos: Vec::new(),
             nursery_last_category: None,
-            pack_raw: secrets_dir.as_ref().and_then(|d| std::fs::read_to_string(d.join("quiz_pack.json")).ok()),
+            pack_raw: session_file_path(secrets_dir.as_deref()).and_then(|p| p.parent().map(|d| d.join("quiz_pack.json"))).and_then(|p| std::fs::read_to_string(p).ok()),
             pack_merged: false,
         };
 
