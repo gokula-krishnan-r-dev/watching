@@ -99,7 +99,7 @@ describe("daily-limit lock", () => {
     expect(screen.getByText(/60 of 60 minutes used today/)).toBeInTheDocument();
     expect(screen.getByText(/Emergency apps still work/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Take a quiz/ })).toBeNull();
-    expect(screen.getByRole("button", { name: /Parent PIN/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Unlock with parent PIN/ })).toBeInTheDocument();
   });
   it("offers the earn-more quiz only when the parent allows it", async () => {
     const withEarn = { ...ceiling, canEarnBeyondCeiling: true };

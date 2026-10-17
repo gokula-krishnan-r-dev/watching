@@ -119,7 +119,7 @@ export function ChildSessionScreen({ bridge, initial, autoMinimize = true }: { b
       onClose={() => setSkipOpen(false)}
       onSkipped={(u) => {
         setSkipOpen(false);
-        bridge.toast(`Quiz skipped by a parent. +${grantedMinutes(u)} min added.`, "success");
+        bridge.toast(`Unlocked by a parent. +${grantedMinutes(u)} min added for today.`, "success");
         void finishQuiz();
       }}
     />
@@ -146,7 +146,7 @@ export function ChildSessionScreen({ bridge, initial, autoMinimize = true }: { b
     );
   else if (st.screen === "fail_lock") body = <FailLock bridge={bridge} st={st} onSkip={() => setSkipOpen(true)} onPin={() => void openPinMenu()} onRefresh={refresh} />;
   else if (st.screen === "paused") body = <Paused st={st} onPin={() => void openPinMenu()} />;
-  else body = <Ceiling bridge={bridge} st={st} onPin={() => void openPinMenu()} onRefresh={refresh} />;
+  else body = <Ceiling bridge={bridge} st={st} onPin={() => void openPinMenu()} onSkip={() => setSkipOpen(true)} onRefresh={refresh} />;
 
   return (
     <>
@@ -624,7 +624,7 @@ function FailLock({ bridge, st, onSkip, onPin, onRefresh }: { bridge: AppBridge;
   );
 }
 
-function Ceiling({ bridge, st, onPin, onRefresh }: { bridge: AppBridge; st: ChildUiState; onPin: () => void; onRefresh: () => Promise<void> }) {
+function Ceiling({ bridge, st, onPin, onSkip, onRefresh }: { bridge: AppBridge; st: ChildUiState; onPin: () => void; onSkip: () => void; onRefresh: () => Promise<void> }) {
   const [busy, setBusy] = React.useState(false);
   const earn = async () => {
     setBusy(true);
@@ -655,8 +655,11 @@ function Ceiling({ bridge, st, onPin, onRefresh }: { bridge: AppBridge; st: Chil
             <BookOpen className="h-4 w-4" aria-hidden="true" /> Take a quiz to earn more time
           </Button>
         )}
-        <Button variant="secondary" onClick={onPin}>
-          <KeyRound className="h-4 w-4" aria-hidden="true" /> {t("parent_pin_label")}
+        <Button variant="secondary" onClick={onSkip}>
+          <KeyRound className="h-4 w-4" aria-hidden="true" /> Unlock with parent PIN
+        </Button>
+        <Button variant="ghost" className="text-slate-300 hover:bg-white/10 hover:text-white" onClick={onPin}>
+          {t("parent_pin_label")}
         </Button>
       </div>
     </Overlay>
