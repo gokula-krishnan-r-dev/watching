@@ -356,12 +356,17 @@ fn sync_tick(
                     .map(|s| {
                         let mut weak_list: Vec<String> = s.weak_concepts.iter().cloned().collect();
                         weak_list.sort();
+                        let mut mastered_list: Vec<String> = s.mastered_concepts.iter().cloned().collect();
+                        mastered_list.sort();
                         SkillStateUpload {
                             topic: s.topic.clone(),
                             level: s.level,
                             streak_correct: s.streak_correct,
                             weak: !s.weak_concepts.is_empty(),
                             weak_concepts: weak_list,
+                            weak_concept_titles: s.concept_titles.clone(),
+                            mastered_concepts: mastered_list,
+                            tier_label: s.tier_label.clone(),
                             total_attempts: s.total_attempts,
                             total_correct: s.total_correct,
                         }

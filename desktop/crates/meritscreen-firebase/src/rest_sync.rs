@@ -6,7 +6,7 @@ use tracing::debug;
 
 use crate::child_sync::{
     app_rule_from_value, policy_from_value, to_firestore_fields, ChildRemoteClient, DeviceIds,
-    DeviceStatus, PolicyBundle, QuizAttemptUpload, SkillStateUpload, UsageDayUpload,
+    DeviceStatus, ExplorerProgressUpload, PolicyBundle, QuizAttemptUpload, SkillStateUpload, StickerUnlockUpload, UsageDayUpload,
 };
 use crate::error::{FirebaseError, FirebaseResult};
 use crate::paths;
@@ -171,6 +171,28 @@ impl<F: FirestoreClient + Send + Sync + 'static> ChildRemoteClient
         }
         .replace_skill_state(ids, skills, id_token)
         .await
+    }
+
+    async fn upload_sticker_unlock(
+        &self,
+        ids: &DeviceIds,
+        upload: &StickerUnlockUpload,
+        id_token: &str,
+    ) -> FirebaseResult<bool> {
+        RestChildRemoteClient { firestore: &self.firestore, project_id: &self.project_id }
+            .upload_sticker_unlock(ids, upload, id_token)
+            .await
+    }
+
+    async fn replace_explorer_progress(
+        &self,
+        ids: &DeviceIds,
+        upload: &ExplorerProgressUpload,
+        id_token: &str,
+    ) -> FirebaseResult<()> {
+        RestChildRemoteClient { firestore: &self.firestore, project_id: &self.project_id }
+            .replace_explorer_progress(ids, upload, id_token)
+            .await
     }
 
     async fn patch_heartbeat(
@@ -368,6 +390,9 @@ impl<'a, F: FirestoreClient> RestChildRemoteClient<'a, F> {
                     "streakCorrect": s.streak_correct,
                     "weak": s.weak,
                     "weakConcepts": s.weak_concepts,
+                    "weakConceptTitles": s.weak_concept_titles,
+                    "masteredConcepts": s.mastered_concepts,
+                    "tierLabel": s.tier_label,
                     "totalAttempts": s.total_attempts,
                     "totalCorrect": s.total_correct,
                 }),
@@ -375,6 +400,48 @@ impl<'a, F: FirestoreClient> RestChildRemoteClient<'a, F> {
         }
         let path = paths::skill_state_current(&ids.family_id, &ids.child_id);
         let body = json!({ "topics": topics, "updatedAt": chrono_now_ms() });
+        self.merge_doc(&path, &body, id_token).await
+    }
+
+    async fn upload_sticker_unlock(
+        &self,
+        ids: &DeviceIds,
+        upload: &StickerUnlockUpload,
+        id_token: &str,
+    ) -> FirebaseResult<bool> {
+        let path = paths::sticker_unlock(&ids.family_id, &ids.child_id, &upload.unlock_id);
+        if self.firestore.get_document(&path, id_token).await?.is_some() {
+            return Ok(false);
+        }
+        let body = json!({
+            "stickerId": upload.sticker_id,
+            "stage": upload.stage,
+            "title": upload.title,
+            "emoji": upload.emoji,
+            "source": upload.source,
+            "attemptId": upload.attempt_id,
+            "unlockedAt": upload.unlocked_at_epoch_ms,
+            "unlockedAtEpochMs": upload.unlocked_at_epoch_ms,
+            "xpAtUnlock": upload.xp_at_unlock,
+        });
+        self.create_doc(&path, &body, id_token).await?;
+        Ok(true)
+    }
+
+    async fn replace_explorer_progress(
+        &self,
+        ids: &DeviceIds,
+        upload: &ExplorerProgressUpload,
+        id_token: &str,
+    ) -> FirebaseResult<()> {
+        let path = paths::explorer_progress_current(&ids.family_id, &ids.child_id);
+        let body = json!({
+            "xp": upload.xp,
+            "explorerLevel": upload.explorer_level,
+            "passStreakDays": upload.pass_streak_days,
+            "lastPassDayKey": upload.last_pass_day_key,
+            "updatedAt": upload.updated_at_epoch_ms,
+        });
         self.merge_doc(&path, &body, id_token).await
     }
 

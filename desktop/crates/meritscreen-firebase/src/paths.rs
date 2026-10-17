@@ -31,3 +31,11 @@ pub fn quiz_attempt(family_id: &str, child_id: &str, attempt_id: &str) -> String
 pub fn skill_state_current(family_id: &str, child_id: &str) -> String {
     format!("families/{family_id}/children/{child_id}/skillState/current")
 }
+
+pub fn sticker_unlock(family_id: &str, child_id: &str, unlock_id: &str) -> String {
+    format!("families/{family_id}/children/{child_id}/stickerUnlocks/{unlock_id}")
+}
+
+pub fn explorer_progress_current(family_id: &str, child_id: &str) -> String {
+    format!("families/{family_id}/children/{child_id}/explorerProgress/current")
+}

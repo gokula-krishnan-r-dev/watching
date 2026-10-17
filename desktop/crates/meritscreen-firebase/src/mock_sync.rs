@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::child_sync::{
-    ChildRemoteClient, DeviceIds, DeviceStatus, PolicyBundle, QuizAttemptUpload, SkillStateUpload,
-    UsageDayUpload,
+    ChildRemoteClient, DeviceIds, DeviceStatus, ExplorerProgressUpload, PolicyBundle,
+    QuizAttemptUpload, SkillStateUpload, StickerUnlockUpload, UsageDayUpload,
 };
 use crate::error::FirebaseResult;
 use crate::paths;
@@ -22,6 +22,8 @@ pub struct MockChildRemoteClient {
     pub usage: Mutex<Vec<(String, UsageDayUpload)>>,
     pub quiz: Mutex<HashSet<String>>,
     pub skills: Mutex<Vec<(String, Vec<SkillStateUpload>)>>,
+    pub stickers: Mutex<Vec<(String, StickerUnlockUpload)>>,
+    pub explorer: Mutex<Vec<(String, ExplorerProgressUpload)>>,
     pub heartbeats: Mutex<Vec<(String, DeviceHeartbeatPatch)>>,
     pub inventories: Mutex<Vec<(String, String, usize)>>,
     pub fail_next: Mutex<bool>,
@@ -118,6 +120,30 @@ impl ChildRemoteClient for MockChildRemoteClient {
             .lock()
             .unwrap()
             .push((Self::key(ids), skills.to_vec()));
+        Ok(())
+    }
+
+    async fn upload_sticker_unlock(
+        &self,
+        ids: &DeviceIds,
+        upload: &StickerUnlockUpload,
+        _id_token: &str,
+    ) -> FirebaseResult<bool> {
+        let mut v = self.stickers.lock().unwrap();
+        if v.iter().any(|(_, u)| u.unlock_id == upload.unlock_id) {
+            return Ok(false);
+        }
+        v.push((Self::key(ids), upload.clone()));
+        Ok(true)
+    }
+
+    async fn replace_explorer_progress(
+        &self,
+        ids: &DeviceIds,
+        upload: &ExplorerProgressUpload,
+        _id_token: &str,
+    ) -> FirebaseResult<()> {
+        self.explorer.lock().unwrap().push((Self::key(ids), upload.clone()));
         Ok(())
     }
 

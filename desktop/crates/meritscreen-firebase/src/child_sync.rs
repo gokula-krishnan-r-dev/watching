@@ -67,10 +67,49 @@ pub struct SkillStateUpload {
     pub weak: bool,
     #[serde(default)]
     pub weak_concepts: Vec<String>,
+    /// Android `weakConceptTitles` (concept id → parent-friendly title).
+    #[serde(default)]
+    pub weak_concept_titles: std::collections::HashMap<String, String>,
+    /// Android `masteredConcepts`.
+    #[serde(default)]
+    pub mastered_concepts: Vec<String>,
+    /// Android `tierLabel` (basic/intermediate/advanced/mastery).
+    #[serde(default = "default_tier")]
+    pub tier_label: String,
     #[serde(default)]
     pub total_attempts: u32,
     #[serde(default)]
     pub total_correct: u32,
+}
+
+fn default_tier() -> String {
+    "basic".into()
+}
+
+/// Android `StickerUnlockUpload` — written to `stickerUnlocks/{unlockId}` (idempotent).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StickerUnlockUpload {
+    pub unlock_id: String,
+    pub sticker_id: String,
+    pub stage: String,
+    pub title: String,
+    pub emoji: String,
+    pub source: String,
+    pub attempt_id: Option<String>,
+    pub unlocked_at_epoch_ms: i64,
+    pub xp_at_unlock: u32,
+}
+
+/// Android `ExplorerProgressUpload` — written to `explorerProgress/current`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplorerProgressUpload {
+    pub xp: u32,
+    pub explorer_level: u32,
+    pub pass_streak_days: u32,
+    pub last_pass_day_key: Option<String>,
+    pub updated_at_epoch_ms: i64,
 }
 
 /// Full child cloud surface used by Guardian schedulers.
@@ -110,6 +149,21 @@ pub trait ChildRemoteClient: Send + Sync {
         &self,
         ids: &DeviceIds,
         skills: &[SkillStateUpload],
+        id_token: &str,
+    ) -> FirebaseResult<()>;
+
+    /// Returns `Ok(true)` if written, `Ok(false)` if the unlock already existed.
+    async fn upload_sticker_unlock(
+        &self,
+        ids: &DeviceIds,
+        upload: &StickerUnlockUpload,
+        id_token: &str,
+    ) -> FirebaseResult<bool>;
+
+    async fn replace_explorer_progress(
+        &self,
+        ids: &DeviceIds,
+        upload: &ExplorerProgressUpload,
         id_token: &str,
     ) -> FirebaseResult<()>;
 
@@ -315,5 +369,54 @@ mod bonus_parse_tests {
         assert_eq!(p.active_bonus_minutes("2026-10-16", ""), 30);
         let android = policy_from_value(&serde_json::json!({"bonusMinutesToday": 45}));
         assert_eq!(android.active_bonus_minutes("2026-10-16", ""), 0);
+    }
+}
+
+#[cfg(test)]
+mod upload_format_tests {
+    use super::*;
+
+    #[test]
+    fn uploads_serialize_with_android_field_names() {
+        let skill = SkillStateUpload {
+            topic: "fractions".into(),
+            level: 3,
+            streak_correct: 2,
+            weak: true,
+            weak_concepts: vec!["halves".into()],
+            weak_concept_titles: [("halves".to_string(), "Halves".to_string())].into_iter().collect(),
+            mastered_concepts: vec!["wholes".into()],
+            tier_label: "intermediate".into(),
+            total_attempts: 9,
+            total_correct: 7,
+        };
+        let v = serde_json::to_value(&skill).unwrap();
+        assert_eq!(v["weakConceptTitles"]["halves"], "Halves");
+        assert_eq!(v["masteredConcepts"][0], "wholes");
+        assert_eq!(v["tierLabel"], "intermediate");
+        // Old payloads (no reward fields) still parse.
+        let old: SkillStateUpload = serde_json::from_value(serde_json::json!({
+            "topic": "addition", "level": 2, "streakCorrect": 0, "weak": false,
+            "weakConcepts": [], "totalAttempts": 1, "totalCorrect": 1
+        }))
+        .unwrap();
+        assert_eq!(old.tier_label, "basic");
+
+        let sticker = StickerUnlockUpload {
+            unlock_id: "stk_c1_sprout_star".into(),
+            sticker_id: "sprout_star".into(),
+            stage: "SPROUT".into(),
+            title: "Bright Star".into(),
+            emoji: "⭐".into(),
+            source: "QUIZ_PASS".into(),
+            attempt_id: Some("a1".into()),
+            unlocked_at_epoch_ms: 42,
+            xp_at_unlock: 10,
+        };
+        let v = serde_json::to_value(&sticker).unwrap();
+        assert_eq!(v["unlockId"], "stk_c1_sprout_star");
+        assert_eq!(v["unlockedAtEpochMs"], 42);
+        assert_eq!(crate::paths::sticker_unlock("f", "c", "stk_c1_sprout_star"), "families/f/children/c/stickerUnlocks/stk_c1_sprout_star");
+        assert_eq!(crate::paths::explorer_progress_current("f", "c"), "families/f/children/c/explorerProgress/current");
     }
 }
