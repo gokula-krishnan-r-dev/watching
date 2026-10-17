@@ -108,6 +108,7 @@ fn agent_watchdog_and_gate_decision_flow() {
             pid: Some(5555),
             process_name: Some("roblox.exe".into()),
             idle_seconds: 0,
+            is_screen_locked: false,
             wall_ms: 1_700_000_000_000,
             mono_ms: 50_000,
         })

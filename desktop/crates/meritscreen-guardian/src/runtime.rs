@@ -55,7 +55,17 @@ pub fn run_with_stop(opts: RuntimeOptions, running: StopFlag) -> Result<()> {
     let state = Arc::new(GuardianState::default());
     {
         let restored = restore_session(&db.conn);
+        // Monotonic base must continue from the restored snapshot, otherwise a
+        // reboot would rewind last-tick/shield timestamps and hand time back.
+        *state.session_elapsed_ms.lock() = restored.last_tick_elapsed_ms.unwrap_or(0);
         *state.session.lock() = restored;
+        // A device with persisted pairing ids is a child device even before
+        // the UI host reconnects this boot — enforcement starts immediately.
+        if let Ok(ids) = meritscreen_db::load_pairing_ids(&db.conn) {
+            if ids.family_id.is_some() && ids.child_id.is_some() {
+                *state.role.lock() = DeviceRole::Child;
+            }
+        }
         *state.tamper.lock() = load_tamper_flags(&db.conn);
         *state.tier.lock() = compute_tier(*state.strict_enabled.lock());
         if let Ok(true) = maybe_rescan_inventory(&db.conn) {
@@ -208,6 +218,9 @@ fn dispatch(req: IpcRequest, state: &GuardianState) -> IpcResponse {
         IpcRequest::GetSnapshot => IpcResponse::Snapshot(snapshot_from(state)),
         IpcRequest::SetRole { role } => {
             *state.role.lock() = role;
+            if role == DeviceRole::Child {
+                start_child_interval(state);
+            }
             IpcResponse::Ok
         }
         IpcRequest::SetAppearance { .. } => IpcResponse::Ok,
@@ -238,6 +251,7 @@ fn dispatch(req: IpcRequest, state: &GuardianState) -> IpcResponse {
             pid,
             process_name,
             idle_seconds,
+            is_screen_locked,
             wall_ms,
             mono_ms,
         } => handle_foreground(
@@ -249,7 +263,7 @@ fn dispatch(req: IpcRequest, state: &GuardianState) -> IpcResponse {
                 idle_seconds,
                 wall_ms,
                 mono_ms,
-                is_screen_locked: false,
+                is_screen_locked,
             },
         ),
         IpcRequest::InventoryRescan => {
@@ -297,6 +311,7 @@ fn dispatch(req: IpcRequest, state: &GuardianState) -> IpcResponse {
         ) {
             Ok(()) => {
                 *state.role.lock() = DeviceRole::Child;
+                start_child_interval(state);
                 state
                     .sync_flags
                     .expedite_policy
@@ -308,25 +323,53 @@ fn dispatch(req: IpcRequest, state: &GuardianState) -> IpcResponse {
     }
 }
 
+/// Begin the device-interval accrual clock for a paired child device.
+fn start_child_interval(state: &GuardianState) {
+    let policy = state.policy.lock().clone();
+    let elapsed = *state.session_elapsed_ms.lock();
+    let mut session = state.session.lock();
+    let before = session.clone();
+    *session = SessionEngine::start_device_interval(session.clone(), elapsed, &policy);
+    if *session != before {
+        state.session_dirty.store(true, Ordering::SeqCst);
+    }
+}
+
 fn handle_foreground(state: &GuardianState, sample: ForegroundSample) -> IpcResponse {
     let observation = state.clock.lock().observe(sample.wall_ms, sample.mono_ms);
     match observation {
         ClockObservation::Rollback => {
             state.tamper.lock().clock_rollback = true;
             state.session.lock().phase = SessionPhase::Shielded;
+            state.session_dirty.store(true, Ordering::SeqCst);
             info!("clock rollback detected — fail closed (shielded)");
         }
         ClockObservation::Ok { mono_elapsed_ms } => {
+            // The Guardian — not the UI — owns accrual on a child device, so
+            // killing or hiding the UI cannot stop the daily clock.
+            if *state.role.lock() == DeviceRole::Child {
+                start_child_interval(state);
+            }
             let phase = state.phase();
             let counts = matches!(phase, SessionPhase::InBlock | SessionPhase::Idle)
-                && sample.app_id.is_some();
+                && sample.app_id.is_some()
+                && !sample.is_screen_locked;
             let active = is_active_use(sample.idle_seconds, counts);
-            if active && mono_elapsed_ms > 0 {
+            if mono_elapsed_ms > 0 {
+                // Cap one sample's delta: a sleep/wake or suspend gap between
+                // samples is not active use and must not burn the day's limit.
+                let capped = mono_elapsed_ms.min(5_000);
                 let mut elapsed = state.session_elapsed_ms.lock();
-                *elapsed = elapsed.saturating_add(mono_elapsed_ms);
+                *elapsed = elapsed.saturating_add(capped);
                 let policy = state.policy.lock().clone();
                 let mut session = state.session.lock();
+                let before = session.clone();
                 *session = SessionEngine::tick(session.clone(), *elapsed, &policy, active);
+                if session.minutes_used_today != before.minutes_used_today
+                    || session.phase != before.phase
+                {
+                    state.session_dirty.store(true, Ordering::SeqCst);
+                }
             }
         }
     }
@@ -334,12 +377,17 @@ fn handle_foreground(state: &GuardianState, sample: ForegroundSample) -> IpcResp
     *state.last_foreground.lock() = Some(sample.clone());
     let phase = state.phase();
     let rules = state.rules.lock().clone();
-    let prefer_terminate = matches!(phase, SessionPhase::QuizDue | SessionPhase::Shielded);
+    let paused = state.policy.lock().paused;
+    let prefer_terminate = matches!(
+        phase,
+        SessionPhase::QuizDue | SessionPhase::Shielded | SessionPhase::CeilingReached
+    );
     let decision = decide_gate(GateContext {
         phase,
         sample: &sample,
         rules: &rules,
         prefer_terminate,
+        paused,
     });
 
     let (action, app_id, pid, reason) = match &decision {
@@ -419,6 +467,10 @@ fn watchdog_loop(
         };
         thread::sleep(Duration::from_secs(sleep_secs));
         elapsed_secs = elapsed_secs.saturating_add(sleep_secs);
+
+        if state.session_dirty.swap(false, Ordering::SeqCst) {
+            persist_session(&db.conn, &state.session.lock());
+        }
 
         if elapsed_secs.saturating_sub(last_persist) >= persist_every {
             last_persist = elapsed_secs;

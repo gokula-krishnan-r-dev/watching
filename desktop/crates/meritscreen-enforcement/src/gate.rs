@@ -27,6 +27,8 @@ pub struct GateContext<'a> {
     pub rules: &'a [AppRule],
     /// Prefer terminate over cover when true (fail lock / quiz due).
     pub prefer_terminate: bool,
+    /// Parent paused this child: every non-emergency app is blocked.
+    pub paused: bool,
 }
 
 pub fn decide_gate(ctx: GateContext<'_>) -> GateAction {
@@ -59,8 +61,12 @@ pub fn decide_gate(ctx: GateContext<'_>) -> GateAction {
     };
 
     let _ = pid;
+    if ctx.paused {
+        return block(ctx.sample, ctx.prefer_terminate);
+    }
     match ctx.phase {
-        SessionPhase::QuizDue | SessionPhase::Shielded => {
+        // Daily-limit lock is device-wide, exactly like the fail lock.
+        SessionPhase::QuizDue | SessionPhase::Shielded | SessionPhase::CeilingReached => {
             // Device-wide fail: non-emergency cannot stay usable.
             block(ctx.sample, ctx.prefer_terminate)
         }
@@ -156,6 +162,7 @@ mod tests {
                 sample: &s,
                 rules: &rules,
                 prefer_terminate: true,
+                paused: false,
             }),
             GateAction::Allow
         );
@@ -166,6 +173,7 @@ mod tests {
                 sample: &s,
                 rules: &rules,
                 prefer_terminate: true,
+                paused: false,
             }),
             GateAction::Allow
         );
@@ -182,6 +190,7 @@ mod tests {
                 sample: &s,
                 rules: &rules,
                 prefer_terminate: false,
+                paused: false,
             }),
             GateAction::Cover { .. }
         ));
@@ -192,6 +201,7 @@ mod tests {
                 sample: &s,
                 rules: &rules,
                 prefer_terminate: false,
+                paused: false,
             }),
             GateAction::Allow
         );
@@ -208,6 +218,7 @@ mod tests {
                 sample: &s,
                 rules: &rules,
                 prefer_terminate: true,
+                paused: false,
             }),
             GateAction::Terminate { .. }
         ));
@@ -227,6 +238,7 @@ mod tests {
                 sample: &s,
                 rules: &rules,
                 prefer_terminate: false,
+                paused: false,
             }),
             GateAction::Allow
         );
@@ -239,6 +251,7 @@ mod tests {
                 sample: &s2,
                 rules: &rules,
                 prefer_terminate: false,
+                paused: false,
             }),
             GateAction::Allow
         );
@@ -259,8 +272,33 @@ mod tests {
                 sample: &s,
                 rules: &rules,
                 prefer_terminate: false,
+                paused: false,
             }),
             GateAction::Allow
         );
+    }
+}
+
+#[cfg(test)]
+mod ceiling_gate_tests {
+    use super::*;
+    fn sample(app_id: &str, pid: u32, proc: &str) -> ForegroundSample {
+        ForegroundSample { app_id: Some(app_id.into()), pid: Some(pid), process_name: Some(proc.into()), idle_seconds: 0, wall_ms: 0, mono_ms: 0, is_screen_locked: false }
+    }
+    #[test]
+    fn ceiling_lock_terminates_non_emergency_but_not_emergency() {
+        let mut phone = AppRule::new("phone", "mac:com.apple.MobileSMS");
+        phone.is_emergency = true;
+        let rules = vec![phone, AppRule::new("browser", "mac:com.apple.Safari")];
+        let s = sample("mac:com.apple.Safari", 77, "Safari");
+        assert!(matches!(decide_gate(GateContext { phase: SessionPhase::CeilingReached, sample: &s, rules: &rules, prefer_terminate: true, paused: false }), GateAction::Terminate { .. }));
+        let s = sample("mac:com.apple.MobileSMS", 78, "Messages");
+        assert_eq!(decide_gate(GateContext { phase: SessionPhase::CeilingReached, sample: &s, rules: &rules, prefer_terminate: true, paused: false }), GateAction::Allow);
+    }
+    #[test]
+    fn parent_pause_blocks_even_allowed_apps() {
+        let rules = vec![AppRule::new("browser", "mac:com.apple.Safari")];
+        let s = sample("mac:com.apple.Safari", 79, "Safari");
+        assert!(matches!(decide_gate(GateContext { phase: SessionPhase::InBlock, sample: &s, rules: &rules, prefer_terminate: false, paused: true }), GateAction::Cover { .. }));
     }
 }

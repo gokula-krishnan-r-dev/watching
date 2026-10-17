@@ -37,6 +37,9 @@ pub struct GuardianState {
     pub rules: Mutex<Vec<AppRule>>,
     pub last_foreground: Mutex<Option<ForegroundSample>>,
     pub last_gate_cover: AtomicBool,
+    /// Set when minutes/phase changed and the session must be persisted now
+    /// (not at the 45 s cadence) so a reboot cannot hand time back.
+    pub session_dirty: AtomicBool,
     pub sync_flags: SyncFlags,
 }
 
@@ -61,6 +64,7 @@ impl Default for GuardianState {
             rules: Mutex::new(crate::enforce::default_demo_rules()),
             last_foreground: Mutex::new(None),
             last_gate_cover: AtomicBool::new(false),
+            session_dirty: AtomicBool::new(false),
             sync_flags: SyncFlags::default(),
         }
     }
@@ -92,8 +96,10 @@ impl GuardianState {
     }
 
     pub fn ui_required(&self) -> bool {
-        matches!(self.phase(), SessionPhase::QuizDue | SessionPhase::Shielded)
-            || self.last_gate_cover.load(Ordering::SeqCst)
+        matches!(
+            self.phase(),
+            SessionPhase::QuizDue | SessionPhase::Shielded | SessionPhase::CeilingReached
+        ) || self.last_gate_cover.load(Ordering::SeqCst)
             || self.ui_prewarm()
     }
 
@@ -107,7 +113,10 @@ impl GuardianState {
         matches!(*self.role.lock(), DeviceRole::Child)
             || matches!(
                 self.phase(),
-                SessionPhase::InBlock | SessionPhase::QuizDue | SessionPhase::Shielded
+                SessionPhase::InBlock
+                    | SessionPhase::QuizDue
+                    | SessionPhase::Shielded
+                    | SessionPhase::CeilingReached
             )
     }
 }

@@ -38,6 +38,8 @@ pub enum IpcRequest {
         pid: Option<u32>,
         process_name: Option<String>,
         idle_seconds: u32,
+        #[serde(default)]
+        is_screen_locked: bool,
         wall_ms: i64,
         mono_ms: i64,
     },

@@ -197,8 +197,23 @@ fn sync_tick(
             Ok(Some(bundle)) => {
                 let _ = save_policy(conn, &bundle.policy);
                 let _ = replace_app_rules(conn, &bundle.app_rules);
-                *state.policy.lock() = bundle.policy;
+                *state.policy.lock() = bundle.policy.clone();
                 *state.rules.lock() = bundle.app_rules;
+                // Live parent change: a bonus/raised limit lifts the daily
+                // lock within this poll; a lowered limit locks at once.
+                {
+                    let elapsed = *state.session_elapsed_ms.lock();
+                    let mut session = state.session.lock();
+                    let before = session.clone();
+                    *session = meritscreen_core::SessionEngine::reconcile_ceiling(
+                        session.clone(),
+                        &bundle.policy,
+                        elapsed,
+                    );
+                    if *session != before {
+                        state.session_dirty.store(true, Ordering::SeqCst);
+                    }
+                }
                 if let Some(hash) = bundle.parent_pin_hash {
                     let _ = store.set(accounts::PARENT_PIN_HASH, &hash);
                 }

@@ -64,6 +64,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             pid: sample.pid,
             process_name: sample.process_name,
             idle_seconds: sample.idle_seconds,
+            is_screen_locked: sample.is_screen_locked,
             wall_ms: sample.wall_ms,
             mono_ms: sample.mono_ms,
         }) {
@@ -76,7 +77,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             }) => {
                 let gate = match action.as_str() {
                     "terminate" => {
-                        if matches!(phase, SessionPhase::QuizDue | SessionPhase::Shielded) {
+                        if matches!(phase, SessionPhase::QuizDue | SessionPhase::Shielded | SessionPhase::CeilingReached) {
                             ensure_ui(&mut ui, phase, false);
                         }
                         GateAction::Terminate {
@@ -120,7 +121,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                     // Cap pre-warm residency — never leave WebView forever.
                     if let Some(proc) = ui.as_ref() {
                         if proc.prewarm
-                            && !matches!(phase, SessionPhase::QuizDue | SessionPhase::Shielded)
+                            && !matches!(phase, SessionPhase::QuizDue | SessionPhase::Shielded | SessionPhase::CeilingReached)
                             && proc.spawned_at.elapsed()
                                 > Duration::from_secs(u64::from(QUIZ_PREWARM_SECONDS) + 30)
                         {
