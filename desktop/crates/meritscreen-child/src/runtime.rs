@@ -190,6 +190,8 @@ struct Inner {
     nursery: Option<NurseryDto>,
     nursery_recent_videos: Vec<String>,
     nursery_last_category: Option<String>,
+    /// Current quiz was started from the daily-limit lock (earn-more attempt).
+    quiz_from_ceiling: bool,
     pack_raw: Option<String>,
     pack_merged: bool,
 }
@@ -322,6 +324,7 @@ impl ChildRuntime {
             nursery: None,
             nursery_recent_videos: Vec::new(),
             nursery_last_category: None,
+            quiz_from_ceiling: false,
             pack_raw: session_file_path(secrets_dir.as_deref()).and_then(|p| p.parent().map(|d| d.join("quiz_pack.json"))).and_then(|p| std::fs::read_to_string(p).ok()),
             pack_merged: false,
         };
@@ -373,7 +376,11 @@ impl ChildRuntime {
                                 quiz_passes = 0;
                             }
 
-                            inner.session = restored_session;
+                            inner.session = SessionEngine::reconcile_ceiling(
+                                restored_session,
+                                &inner.policy.clone(),
+                                persisted.elapsed_ms,
+                            );
                             inner.active_app_id = persisted.active_app_id;
                             inner.active_app_name = persisted.active_app_name;
                             inner.app_usage_seconds = app_usage;
@@ -718,6 +725,8 @@ impl ChildRuntime {
         if rules_changed {
             g.rules = app_rules.unwrap();
         }
+        // Bonus / raised limit lifts the daily lock live; a lowered limit locks now.
+        g.session = SessionEngine::reconcile_ceiling(g.session.clone(), &g.policy, g.elapsed_ms);
         // Re-time a live block, unless a quiz-pass grace window is running.
         let in_grace = g.session.quiz_grace_until_elapsed_ms.map(|u| g.elapsed_ms < u).unwrap_or(false);
         if g.session.phase == meritscreen_core::SessionPhase::InBlock && !in_grace {
@@ -738,6 +747,11 @@ impl ChildRuntime {
     pub fn ui_state(&self) -> ChildUiState {
         let mut g = self.inner.lock();
         g.session = SessionEngine::expire_shield_if_needed(g.session.clone(), g.elapsed_ms);
+        let phase_before = g.session.phase;
+        g.session = SessionEngine::reconcile_ceiling(g.session.clone(), &g.policy, g.elapsed_ms);
+        if g.session.phase != phase_before {
+            self.save_persisted(&g);
+        }
         self.clear_quiz_lock_if_expired(&mut g);
         let screen = resolve_screen(&g);
         let daily_limit = meritscreen_core::session::effective_ceiling_opt(&g.policy, &g.session);
@@ -867,6 +881,8 @@ impl ChildRuntime {
             last_award: g.last_award.clone(),
             nursery: g.nursery.clone(),
             can_retry_during_cooldown: g.policy.allow_retry_during_cooldown,
+            paused: g.policy.paused,
+            can_earn_beyond_ceiling: g.policy.allow_earn_beyond_daily_limit && daily_limit.is_some(),
         }
     }
 
@@ -875,6 +891,30 @@ impl ChildRuntime {
     pub fn load_pack_json(&self, raw: &str) -> usize {
         let mut g = self.inner.lock();
         install_pack(&mut g, raw)
+    }
+
+    /// Take a quiz from the daily-limit lock to earn bounded extra time today.
+    /// Only available when the parent enabled earning beyond the daily limit.
+    pub fn start_ceiling_quiz(&self) -> Result<ChildUiState, AppError> {
+        let mut g = self.inner.lock();
+        self.require_ready_locked(&g)?;
+        if g.session.phase != SessionPhase::CeilingReached {
+            return Err(AppError::validation("The daily limit has not been reached."));
+        }
+        if !g.policy.allow_earn_beyond_daily_limit {
+            return Err(AppError::validation(
+                "Your parent hasn't enabled earning extra time beyond the daily limit.",
+            ));
+        }
+        g.quiz_from_ceiling = true;
+        g.session.phase = SessionPhase::QuizDue;
+        begin_quiz(&mut g);
+        if g.nursery.is_none() {
+            g.screen_override = Some(ChildScreen::Quiz);
+        }
+        self.save_persisted(&g);
+        drop(g);
+        Ok(self.ui_state())
     }
 
     /// Retry the quiz during the fail-lock cooldown when the parent policy allows it.
@@ -996,7 +1036,10 @@ impl ChildRuntime {
             }
         }
 
-        let was_quiz_due = g.session.phase == SessionPhase::QuizDue;
+        let was_blocking = matches!(
+            g.session.phase,
+            SessionPhase::QuizDue | SessionPhase::Shielded | SessionPhase::CeilingReached
+        );
 
         g.session = SessionEngine::tick(g.session.clone(), g.elapsed_ms, &g.policy, is_active);
 
@@ -1004,9 +1047,14 @@ impl ChildRuntime {
         if g.session.phase == SessionPhase::QuizDue && g.quiz.is_none() {
             begin_quiz(&mut g);
             g.screen_override = Some(ChildScreen::Quiz);
-            if !was_quiz_due {
-                newly_due = true;
-            }
+        }
+        if !was_blocking
+            && matches!(
+                g.session.phase,
+                SessionPhase::QuizDue | SessionPhase::Shielded | SessionPhase::CeilingReached
+            )
+        {
+            newly_due = true;
         }
 
         // Debounced persistence: save to disk every 5 seconds or when newly due
@@ -1027,6 +1075,14 @@ impl ChildRuntime {
     pub fn launch_app(&self, app_id: &str) -> Result<ChildUiState, AppError> {
         let mut g = self.inner.lock();
         self.require_ready_locked(&g)?;
+        if g.session.phase == SessionPhase::CeilingReached {
+            return Err(AppError::validation(
+                "You've reached today's screen-time limit. A parent can unlock more time with their PIN.",
+            ));
+        }
+        if g.policy.paused {
+            return Err(AppError::validation("A parent has paused screen time right now."));
+        }
         if matches!(
             g.session.phase,
             SessionPhase::QuizDue | SessionPhase::Shielded
@@ -1169,7 +1225,8 @@ impl ChildRuntime {
         self.require_paired_locked(&g)?;
         let pin = pin.trim();
         let Some(hash) = g.pin_hash.as_deref() else {
-            return Ok(pin == "1234");
+            // No parent PIN on this device: fail closed, never a default PIN.
+            return Ok(false);
         };
         Ok(verify_parent_pin(pin, hash))
     }
@@ -1184,7 +1241,20 @@ impl ChildRuntime {
     pub fn force_skip_quiz(&self) -> Result<ChildUiState, AppError> {
         let mut g = self.inner.lock();
         g.quiz = None;
+        g.quiz_from_ceiling = false;
         g.last_feedback = None;
+        if g.session.phase == SessionPhase::CeilingReached {
+            // Parent PIN unlock: bounded today-only extension, limit unchanged.
+            g.session = SessionEngine::parent_pin_unlock(
+                g.session.clone(),
+                g.elapsed_ms,
+                meritscreen_core::app_config::PARENT_PIN_UNLOCK_MINUTES,
+            );
+            g.screen_override = Some(ChildScreen::Launcher);
+            self.save_persisted(&g);
+            drop(g);
+            return Ok(self.ui_state());
+        }
         let rule = g
             .session
             .active_app_id
@@ -1321,18 +1391,15 @@ fn resolve_screen(g: &Inner) -> ChildScreen {
     if g.nursery.is_some() {
         return ChildScreen::Nursery;
     }
+    if g.policy.paused {
+        return ChildScreen::Paused;
+    }
     match g.session.phase {
         SessionPhase::QuizDue => ChildScreen::Quiz,
         SessionPhase::Shielded => ChildScreen::FailLock,
+        SessionPhase::CeilingReached => ChildScreen::Ceiling,
         SessionPhase::Idle | SessionPhase::InBlock => {
-            let ceiling_hit = meritscreen_core::session::effective_ceiling_opt(&g.policy, &g.session)
-                .map(|c| g.session.minutes_used_today >= c)
-                .unwrap_or(false);
-            if ceiling_hit && g.session.phase == SessionPhase::Idle {
-                ChildScreen::Ceiling
-            } else {
-                g.screen_override.unwrap_or(ChildScreen::Launcher)
-            }
+            g.screen_override.unwrap_or(ChildScreen::Launcher)
         }
     }
 }
@@ -1485,10 +1552,17 @@ fn finish_quiz(g: &mut Inner) {
             &g.policy,
             weekend,
         );
-        g.screen_override = Some(ChildScreen::Launcher);
+        // A pass at the daily ceiling only unlocks when earn-more is on;
+        // otherwise the engine keeps CeilingReached and we stay on the lock.
+        g.screen_override = match g.session.phase {
+            SessionPhase::CeilingReached => None,
+            _ => Some(ChildScreen::Launcher),
+        };
+        g.quiz_from_ceiling = false;
     } else {
         g.session = SessionEngine::on_quiz_failed(g.session.clone(), g.elapsed_ms, &g.policy, rule.as_ref());
         g.screen_override = Some(ChildScreen::FailLock);
+        g.quiz_from_ceiling = false;
     }
 }
 
@@ -1536,7 +1610,7 @@ mod tests {
         assert!(!rt2.is_paired());
     }
 
-    fn cred_with_policy(policy: ChildPolicy) -> crate::models::PairingCredential {
+    pub(crate) fn cred_with_policy(policy: ChildPolicy) -> crate::models::PairingCredential {
         crate::models::PairingCredential {
             family_id: "fam1".into(),
             child_id: "kid1".into(),
@@ -2102,5 +2176,125 @@ mod pack_and_retry_tests {
         rt.inner.lock().policy.allow_retry_during_cooldown = true;
         let st = rt.retry_quiz_during_cooldown().unwrap();
         assert!(st.quiz.is_some() || st.nursery.is_some());
+    }
+}
+
+#[cfg(test)]
+mod ceiling_runtime_tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn paired_with_ceiling(ceiling: u32, earn: bool) -> ChildRuntime {
+        let dir = tempdir().unwrap();
+        // Leak the tempdir path is not needed: runtime only uses the dir path.
+        let rt = ChildRuntime::with_secrets_dir(dir.path());
+        std::mem::forget(dir);
+        let policy = ChildPolicy {
+            quiz_interval_minutes: 15,
+            daily_ceiling_minutes: Some(ceiling),
+            allow_earn_beyond_daily_limit: earn,
+            ..ChildPolicy::default()
+        };
+        rt.bind_credential(&super::tests::cred_with_policy(policy)).unwrap();
+        rt
+    }
+
+    #[test]
+    fn reaching_daily_limit_shows_ceiling_lock_and_blocks_launch() {
+        let rt = paired_with_ceiling(15, false);
+        // 15 active minutes in the foreground.
+        let mut st = rt.ui_state();
+        for _ in 0..15 {
+            let (s, _) = rt.tick_foreground(Some("app.browser"), Some("Browser"), 0, false, 60_000);
+            st = s;
+        }
+        assert_eq!(st.phase, SessionPhase::CeilingReached, "used={}", st.minutes_used_today);
+        assert_eq!(st.screen, ChildScreen::Ceiling);
+        assert!(st.ceiling_hit);
+        assert_eq!(st.daily_remaining_minutes, 0);
+        assert!(rt.launch_app("browser").is_err(), "no app launches past the daily limit");
+    }
+
+    #[test]
+    fn bonus_and_pin_unlock_lift_ceiling_but_idle_and_locked_time_do_not_count() {
+        let rt = paired_with_ceiling(15, false);
+        for _ in 0..15 {
+            rt.tick_foreground(Some("app.browser"), Some("Browser"), 0, false, 60_000);
+        }
+        assert_eq!(rt.ui_state().screen, ChildScreen::Ceiling);
+        // Idle / screen-locked foreground ticks must not accrue.
+        let (st, _) = rt.tick_foreground(Some("app.browser"), Some("Browser"), 9999, false, 60_000);
+        assert_eq!(st.minutes_used_today, 15);
+        let (st, _) = rt.tick_foreground(Some("app.browser"), Some("Browser"), 0, true, 60_000);
+        assert_eq!(st.minutes_used_today, 15);
+        // Parent bonus (live policy poll path) lifts the lock.
+        let mut policy = rt.current_policy();
+        policy.grant_bonus(15, &meritscreen_core::session::local_today_key()).unwrap();
+        assert!(rt.apply_policy(policy, None));
+        let st = rt.ui_state();
+        assert_ne!(st.screen, ChildScreen::Ceiling);
+        assert_eq!(st.daily_remaining_minutes, 15);
+        // Hit the (extended) cap again, then Parent PIN unlocks +15 today only.
+        for _ in 0..15 {
+            rt.tick_foreground(Some("app.browser"), Some("Browser"), 0, false, 60_000);
+        }
+        assert_eq!(rt.ui_state().screen, ChildScreen::Ceiling);
+        assert!(rt.skip_quiz_with_pin("0000").is_err());
+        let st = rt.skip_quiz_with_pin("5791").unwrap();
+        assert_eq!(st.phase, SessionPhase::InBlock);
+        assert_eq!(st.daily_remaining_minutes, 15);
+        assert_eq!(rt.current_policy().daily_ceiling_minutes, Some(15), "permanent limit unchanged");
+    }
+
+    #[test]
+    fn ceiling_quiz_only_when_parent_allows_earning_more() {
+        let rt = paired_with_ceiling(15, false);
+        for _ in 0..15 {
+            rt.tick_foreground(Some("app.browser"), Some("Browser"), 0, false, 60_000);
+        }
+        assert!(rt.start_ceiling_quiz().is_err(), "earn-more off: no quiz past the cap");
+        let rt2 = paired_with_ceiling(15, true);
+        for _ in 0..15 {
+            rt2.tick_foreground(Some("app.browser"), Some("Browser"), 0, false, 60_000);
+        }
+        let st = rt2.start_ceiling_quiz().unwrap();
+        assert_eq!(st.screen, ChildScreen::Quiz);
+    }
+
+    #[test]
+    fn used_minutes_survive_restart_and_stay_locked() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().to_path_buf();
+        {
+            let rt = ChildRuntime::with_secrets_dir(&path);
+            let policy = ChildPolicy {
+                quiz_interval_minutes: 15,
+                daily_ceiling_minutes: Some(15),
+                ..ChildPolicy::default()
+            };
+            rt.bind_credential(&super::tests::cred_with_policy(policy)).unwrap();
+            for _ in 0..15 {
+                rt.tick_foreground(Some("app.browser"), Some("Browser"), 0, false, 60_000);
+            }
+            rt.flush_persisted();
+        }
+        let rt2 = ChildRuntime::with_secrets_dir(&path);
+        let st = rt2.ui_state();
+        assert_eq!(st.minutes_used_today, 15, "reboot must not hand the day back");
+        assert_eq!(st.screen, ChildScreen::Ceiling);
+        assert_eq!(st.phase, SessionPhase::CeilingReached);
+    }
+
+    #[test]
+    fn paused_child_is_locked_and_does_not_accrue() {
+        let rt = paired_with_ceiling(60, false);
+        let mut policy = rt.current_policy();
+        policy.paused = true;
+        assert!(rt.apply_policy(policy, None));
+        let (st, _) = rt.tick_foreground(Some("app.browser"), Some("Browser"), 0, false, 60_000);
+        assert_eq!(st.screen, ChildScreen::Paused);
+        assert!(st.paused);
+        assert_eq!(st.minutes_used_today, 0);
+        assert!(rt.launch_app("browser").is_err());
     }
 }

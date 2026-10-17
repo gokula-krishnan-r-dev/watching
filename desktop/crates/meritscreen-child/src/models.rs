@@ -101,6 +101,8 @@ pub enum ChildScreen {
     FailLock,
     Ceiling,
     PinMenu,
+    /// Parent paused this child from their dashboard.
+    Paused,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -170,6 +172,12 @@ pub struct ChildUiState {
     /// Parent policy allows retrying the quiz during the fail-lock cooldown.
     #[serde(default)]
     pub can_retry_during_cooldown: bool,
+    /// Parent has paused this child (dashboard pause).
+    #[serde(default)]
+    pub paused: bool,
+    /// Parent allows a passed quiz at the daily ceiling to earn bounded extra time today.
+    #[serde(default)]
+    pub can_earn_beyond_ceiling: bool,
 }
 
 /// One sticker/XP award to celebrate (Android `Completed` step fields).
@@ -234,6 +242,8 @@ impl Default for ChildUiState {
             last_award: None,
             nursery: None,
             can_retry_during_cooldown: false,
+            paused: false,
+            can_earn_beyond_ceiling: false,
         }
     }
 }
