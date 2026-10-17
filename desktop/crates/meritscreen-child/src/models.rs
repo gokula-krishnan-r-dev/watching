@@ -1,7 +1,8 @@
 //! Child UI DTOs — local only, no Firebase types.
 
 use meritscreen_core::{
-    QuizAnswerFeedback, QuizChoice, QuizSessionResult, SessionPhase, SessionSnapshot,
+    ExplorerProgress, NurseryTeachItem, NurseryVideo, QuizAnswerFeedback, QuizChoice,
+    QuizSessionResult, SessionPhase, SessionSnapshot, StickerUnlock,
 };
 use serde::{Deserialize, Serialize};
 
@@ -35,6 +36,17 @@ pub struct QuizPromptDto {
     pub total: u32,
     pub teach_title: Option<String>,
     pub teach_body: Vec<String>,
+    /// TAP_TEXT | TAP_IMAGE | COUNT_AND_TAP | MATCH_COLOR_SHAPE (Android interactionType).
+    #[serde(default = "default_interaction")]
+    pub interaction_type: String,
+    #[serde(default)]
+    pub prompt_tag: Option<String>,
+    #[serde(default)]
+    pub prompt_count: Option<i32>,
+}
+
+fn default_interaction() -> String {
+    "TAP_TEXT".into()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,6 +54,10 @@ pub struct QuizPromptDto {
 pub struct QuizChoiceDto {
     pub id: String,
     pub text: String,
+    #[serde(default)]
+    pub image_tag: Option<String>,
+    #[serde(default)]
+    pub audio_key: Option<String>,
 }
 
 impl From<&QuizChoice> for QuizChoiceDto {
@@ -49,6 +65,8 @@ impl From<&QuizChoice> for QuizChoiceDto {
         Self {
             id: c.id.clone(),
             text: c.text.clone(),
+            image_tag: c.image_tag.clone(),
+            audio_key: c.audio_key.clone(),
         }
     }
 }
@@ -56,9 +74,20 @@ impl From<&QuizChoice> for QuizChoiceDto {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuizLockDto {
-    /// Seconds remaining on C09c lock after a wrong answer.
+    /// Seconds remaining on the 30 s Learn-More lock after a wrong answer.
     pub remaining_seconds: u32,
     pub concept_line: String,
+    /// Why the picked answer was wrong (Android whyWrongByChoice).
+    #[serde(default)]
+    pub why_line: String,
+    /// The correct choice, named so the lock teaches rather than just waits.
+    #[serde(default)]
+    pub correct_choice_text: String,
+    /// Mini-lesson shown during the lock (question miniLesson or concept explainer).
+    #[serde(default)]
+    pub lesson_title: String,
+    #[serde(default)]
+    pub lesson_body: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +97,7 @@ pub enum ChildScreen {
     Checklist,
     Launcher,
     Quiz,
+    Nursery,
     FailLock,
     Ceiling,
     PinMenu,
@@ -115,6 +145,42 @@ pub struct ChildUiState {
     pub quiz_attempts_today: u32,
     #[serde(default)]
     pub quiz_passes_today: u32,
+    /// Set when no (distinct) questions are available for this child's age band.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quiz_error: Option<String>,
+    #[serde(default)]
+    pub show_explanations: bool,
+    #[serde(default)]
+    pub early_learner: bool,
+    #[serde(default)]
+    pub explorer: ExplorerProgress,
+    #[serde(default)]
+    pub stickers: Vec<StickerUnlock>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_award: Option<LastAwardDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nursery: Option<NurseryDto>,
+}
+
+/// One sticker/XP award to celebrate (Android `Completed` step fields).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastAwardDto {
+    pub sticker_title: Option<String>,
+    pub sticker_emoji: Option<String>,
+    pub sticker_stage_label: Option<String>,
+    pub xp_gained: u32,
+    pub leveled_up: bool,
+    pub weekend_bonus_applied: bool,
+}
+
+/// Teach-first content for early learners (Android NurseryVideo / NurseryTeach steps).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NurseryDto {
+    pub video: Option<NurseryVideo>,
+    pub video_category: Option<String>,
+    pub items: Vec<NurseryTeachItem>,
 }
 
 impl Default for ChildUiState {
@@ -148,6 +214,13 @@ impl Default for ChildUiState {
             quiz_minutes_today: 0,
             quiz_attempts_today: 0,
             quiz_passes_today: 0,
+            quiz_error: None,
+            show_explanations: true,
+            early_learner: false,
+            explorer: ExplorerProgress::default(),
+            stickers: Vec::new(),
+            last_award: None,
+            nursery: None,
         }
     }
 }

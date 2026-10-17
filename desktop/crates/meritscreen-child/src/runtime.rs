@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 
 use chrono::Datelike;
 use meritscreen_core::app_config::{PAIRING_CODE_LENGTH, QUIZ_LOCKOUT_SECONDS};
+use meritscreen_core::rewards::{award_quiz_pass, AwardResult};
 use meritscreen_core::{
-    load_builtin_bank, AdaptiveQuizEngine, AgeBand, AppError, AppRule, ChildPolicy, QuizMode,
-    QuizQuestion, SessionEngine, SessionPhase, SessionSnapshot, TopicSkill,
+    load_builtin_bank, AdaptiveQuizEngine, AgeBand, AppError, AppRule, ChildPolicy, ExplorerProgress,
+    QuizQuestion, QuizMode, SessionEngine, SessionPhase, SessionSnapshot, StickerUnlock, TopicSkill,
 };
 use meritscreen_security::{accounts, hash_parent_pin, verify_parent_pin, SecretStore};
 use parking_lot::Mutex;
@@ -19,9 +20,33 @@ use uuid::Uuid;
 
 use crate::models::{
     PairingCredential,
-    default_checklist, snapshot_metrics, ChecklistItem, ChildScreen, ChildUiState, LauncherApp,
-    QuizChoiceDto, QuizLockDto, QuizPromptDto,
+    default_checklist, snapshot_metrics, ChecklistItem, ChildScreen, ChildUiState, LastAwardDto,
+    LauncherApp, NurseryDto, QuizChoiceDto, QuizLockDto, QuizPromptDto,
 };
+
+/// 30 days of question history are excluded from picking (Android `QUIZ_QUESTION_HISTORY_DAYS`).
+const HISTORY_WINDOW_MS: i64 = 30 * 24 * 60 * 60_000;
+
+/// A completed quiz, queued until the Guardian uploads it (Android `QuizAttemptEntity`, dirty flag).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuizAttemptRecord {
+    pub attempt_id: String,
+    pub created_at_epoch_ms: i64,
+    pub topics: Vec<String>,
+    pub score: u32,
+    pub total: u32,
+    pub passed: bool,
+    pub extra_minutes_granted: u32,
+    pub time_spent_seconds: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentQuestion {
+    id: String,
+    at_ms: i64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,6 +79,23 @@ pub struct PersistedChildSession {
     pub daily_usage_history: HashMap<String, HashMap<String, u32>>,
     #[serde(default)]
     pub daily_total_history: HashMap<String, u32>,
+    /// Adaptive skill state per topic (Android skillState) — persists across sessions.
+    #[serde(default)]
+    pub skills: HashMap<String, TopicSkill>,
+    #[serde(default)]
+    pub recent_questions: Vec<RecentQuestion>,
+    #[serde(default)]
+    pub explorer: ExplorerProgress,
+    #[serde(default)]
+    pub stickers: Vec<StickerUnlock>,
+    #[serde(default)]
+    pub pending_attempts: Vec<QuizAttemptRecord>,
+    #[serde(default)]
+    pub nursery_recent_videos: Vec<String>,
+    #[serde(default)]
+    pub nursery_last_category: Option<String>,
+    #[serde(default)]
+    pub last_award: Option<LastAwardDto>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +111,10 @@ pub struct ChildReportTelemetry {
     pub quiz_passes_today: u32,
     pub daily_usage_history: HashMap<String, HashMap<String, u32>>,
     pub daily_total_history: HashMap<String, u32>,
+    pub skills: Vec<TopicSkill>,
+    pub pending_attempts: Vec<QuizAttemptRecord>,
+    pub explorer: ExplorerProgress,
+    pub stickers: Vec<StickerUnlock>,
 }
 
 fn session_file_path(secrets_dir: Option<&Path>) -> Option<PathBuf> {
@@ -94,6 +140,10 @@ struct ActiveQuiz {
     skills: HashMap<String, TopicSkill>,
     lock_until_ms: Option<i64>,
     last_wrong_concept: Option<String>,
+    last_wrong_question: Option<QuizQuestion>,
+    /// Monotonic start of the current question (real response times, Android SystemClock).
+    started_elapsed_ms: i64,
+    quiz_seconds_at_start: u64,
 }
 
 struct Inner {
@@ -124,6 +174,62 @@ struct Inner {
     quiz_passes_today: u32,
     daily_usage_history: HashMap<String, HashMap<String, u32>>,
     daily_total_history: HashMap<String, u32>,
+    skills: HashMap<String, TopicSkill>,
+    recent_questions: Vec<RecentQuestion>,
+    explorer: ExplorerProgress,
+    stickers: Vec<StickerUnlock>,
+    pending_attempts: Vec<QuizAttemptRecord>,
+    quiz_error: Option<String>,
+    last_award: Option<LastAwardDto>,
+    nursery: Option<NurseryDto>,
+    nursery_recent_videos: Vec<String>,
+    nursery_last_category: Option<String>,
+}
+
+fn wall_now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn award_dto(r: &AwardResult) -> LastAwardDto {
+    LastAwardDto {
+        sticker_title: r.unlocked.as_ref().map(|u| u.title.clone()),
+        sticker_emoji: r.unlocked.as_ref().map(|u| u.emoji.clone()),
+        sticker_stage_label: r.unlocked.as_ref().map(|_u| {
+            meritscreen_core::rewards::StickerStage::for_level(r.progress.explorer_level).label().to_string()
+        }),
+        xp_gained: r.xp_gained,
+        leveled_up: r.leveled_up,
+        weekend_bonus_applied: r.weekend_bonus_applied,
+    }
+}
+
+/// Android `awardQuizPass` against the runtime's persisted progress.
+fn award_pass(g: &mut Inner, attempt_id: Option<&str>, source: Option<&str>) -> AwardResult {
+    let today = meritscreen_core::session::local_today_key();
+    let yesterday = (chrono::Local::now().date_naive() - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+    let owned: std::collections::HashSet<String> = g.stickers.iter().map(|u| u.sticker_id.clone()).collect();
+    let r = award_quiz_pass(
+        &g.explorer,
+        &owned,
+        g.child_id.as_deref().unwrap_or("local"),
+        attempt_id,
+        source,
+        g.policy.rewards_enabled,
+        g.policy.weekend_bonus_enabled,
+        SessionEngine::is_weekend_local(),
+        &today,
+        &yesterday,
+        wall_now_ms(),
+    );
+    g.explorer = r.progress.clone();
+    if let Some(u) = &r.unlocked {
+        g.stickers.push(u.clone());
+    }
+    g.last_award = Some(award_dto(&r));
+    r
 }
 
 pub struct ChildRuntime {
@@ -187,6 +293,16 @@ impl ChildRuntime {
             quiz_passes_today: 0,
             daily_usage_history: HashMap::new(),
             daily_total_history: HashMap::new(),
+            skills: HashMap::new(),
+            recent_questions: Vec::new(),
+            explorer: ExplorerProgress::default(),
+            stickers: Vec::new(),
+            pending_attempts: Vec::new(),
+            quiz_error: None,
+            last_award: None,
+            nursery: None,
+            nursery_recent_videos: Vec::new(),
+            nursery_last_category: None,
         };
 
         // Restore persisted session across app restart / PC reboot
@@ -244,6 +360,14 @@ impl ChildRuntime {
                             inner.quiz_passes_today = quiz_passes;
                             inner.daily_usage_history = daily_usage;
                             inner.daily_total_history = daily_total;
+                            inner.skills = persisted.skills;
+                            inner.recent_questions = persisted.recent_questions;
+                            inner.explorer = persisted.explorer;
+                            inner.stickers = persisted.stickers;
+                            inner.pending_attempts = persisted.pending_attempts;
+                            inner.nursery_recent_videos = persisted.nursery_recent_videos;
+                            inner.nursery_last_category = persisted.nursery_last_category;
+                            inner.last_award = persisted.last_award;
                             inner.screen_override = Some(ChildScreen::Launcher);
                         }
                     }
@@ -294,6 +418,14 @@ impl ChildRuntime {
             quiz_passes_today: g.quiz_passes_today,
             daily_usage_history: g.daily_usage_history.clone(),
             daily_total_history: g.daily_total_history.clone(),
+            skills: g.skills.clone(),
+            recent_questions: g.recent_questions.clone(),
+            explorer: g.explorer.clone(),
+            stickers: g.stickers.clone(),
+            pending_attempts: g.pending_attempts.clone(),
+            nursery_recent_videos: g.nursery_recent_videos.clone(),
+            nursery_last_category: g.nursery_last_category.clone(),
+            last_award: g.last_award.clone(),
         };
         if let Ok(json) = serde_json::to_string_pretty(&persisted) {
             let tmp = path.with_extension("tmp");
@@ -515,11 +647,32 @@ impl ChildRuntime {
                     .as_ref()
                     .map(|m| m.body_lines.clone())
                     .unwrap_or_default(),
+                interaction_type: question.interaction_type.clone(),
+                prompt_tag: question.prompt_tag.clone(),
+                prompt_count: question.prompt_count,
             })
         });
         let quiz_lock = g.quiz.as_ref().and_then(|q| {
             q.lock_until_ms.map(|until| {
                 let rem = ((until - g.elapsed_ms).max(0) / 1000) as u32;
+                let wrong_q = q.last_wrong_question.as_ref();
+                let correct_text = wrong_q
+                    .and_then(|wq| wq.choices.iter().find(|c| c.correct))
+                    .map(|c| {
+                        if c.text.trim().is_empty() {
+                            c.image_tag.clone().unwrap_or_default().replace('_', " ")
+                        } else {
+                            c.text.clone()
+                        }
+                    })
+                    .unwrap_or_default();
+                let (lesson_title, lesson_body) = match wrong_q.and_then(|wq| wq.mini_lesson.as_ref()) {
+                    Some(m) => (m.title.clone(), m.body_lines.clone()),
+                    None => (
+                        wrong_q.map(|wq| wq.concept_title.clone()).unwrap_or_default(),
+                        vec![g.last_feedback.as_ref().map(|f| f.concept_line.clone()).unwrap_or_default()],
+                    ),
+                };
                 QuizLockDto {
                     remaining_seconds: rem,
                     concept_line: g
@@ -527,6 +680,10 @@ impl ChildRuntime {
                         .as_ref()
                         .map(|f| f.concept_line.clone())
                         .unwrap_or_default(),
+                    why_line: g.last_feedback.as_ref().map(|f| f.why_line.clone()).unwrap_or_default(),
+                    correct_choice_text: correct_text,
+                    lesson_title,
+                    lesson_body,
                 }
             })
         });
@@ -590,7 +747,51 @@ impl ChildRuntime {
             quiz_minutes_today: quiz_minutes,
             quiz_attempts_today: g.quiz_attempts_today,
             quiz_passes_today: g.quiz_passes_today,
+            quiz_error: g.quiz_error.clone(),
+            show_explanations: g.policy.show_explanations,
+            early_learner: g.age_band.is_early_learner(),
+            explorer: g.explorer.clone(),
+            stickers: g.stickers.clone(),
+            last_award: g.last_award.clone(),
+            nursery: g.nursery.clone(),
         }
+    }
+
+    /// Attempts not yet handed to the Guardian for Firestore upload.
+    pub fn drain_pending_attempts(&self) -> Vec<QuizAttemptRecord> {
+        let mut g = self.inner.lock();
+        let out = std::mem::take(&mut g.pending_attempts);
+        if !out.is_empty() {
+            self.save_persisted(&g);
+        }
+        out
+    }
+
+    /// Early-learner teach-first finished: unlock time + sticker, like a passed quiz
+    /// (Android `onNurseryComplete`, source `NURSERY_TEACH`).
+    pub fn complete_nursery(&self) -> Result<ChildUiState, AppError> {
+        let mut g = self.inner.lock();
+        self.require_ready_locked(&g)?;
+        if g.nursery.take().is_none() {
+            return Err(AppError::validation("No nursery lesson in progress."));
+        }
+        award_pass(&mut g, None, Some("NURSERY_TEACH"));
+        let rule = g
+            .session
+            .active_app_id
+            .as_ref()
+            .and_then(|id| g.rules.iter().find(|r| &r.app_id == id).cloned());
+        g.session = SessionEngine::on_quiz_passed(
+            g.session.clone(),
+            g.elapsed_ms,
+            rule.as_ref(),
+            &g.policy,
+            SessionEngine::is_weekend_local(),
+        );
+        g.screen_override = Some(ChildScreen::Launcher);
+        self.save_persisted(&g);
+        drop(g);
+        Ok(self.ui_state())
     }
 
     /// Advance simulated monotonic clock (tests + lab “fast-forward”).
@@ -755,8 +956,12 @@ impl ChildRuntime {
             (question, skill)
         };
 
+        let response_ms = {
+            let quiz = g.quiz.as_ref().ok_or_else(|| AppError::validation("No quiz in progress."))?;
+            (elapsed - quiz.started_elapsed_ms).max(0)
+        };
         let (feedback, updated) =
-            AdaptiveQuizEngine::grade_answer(&question, choice_id, &skill, 1_200);
+            AdaptiveQuizEngine::grade_answer(&question, choice_id, &skill, response_ms);
         let correct = feedback.correct;
         g.last_feedback = Some(feedback);
 
@@ -765,17 +970,30 @@ impl ChildRuntime {
                 .quiz
                 .as_mut()
                 .ok_or_else(|| AppError::validation("No quiz in progress."))?;
-            quiz.skills.insert(question.topic.clone(), updated);
+            quiz.skills.insert(question.topic.clone(), updated.clone());
             if correct {
                 quiz.correct += 1;
             } else {
-                // C09c — 30s lock with concept content; no skip.
+                // 30 s Learn-More lock with the lesson; no skip (Android QUIZ_LOCKOUT_SECONDS).
                 quiz.lock_until_ms = Some(elapsed + i64::from(QUIZ_LOCKOUT_SECONDS) * 1000);
                 quiz.last_wrong_concept = Some(question.concept_id.clone());
+                quiz.last_wrong_question = Some(question.clone());
             }
             quiz.index += 1;
-            quiz.used_ids.insert(question.id);
+            quiz.used_ids.insert(question.id.clone());
+            quiz.started_elapsed_ms = elapsed;
         }
+        // Android persists the skill + history after every answer, not just at the end.
+        g.skills = g
+            .quiz
+            .as_ref()
+            .map(|q| q.skills.clone())
+            .unwrap_or_default();
+        let now = wall_now_ms();
+        g.recent_questions.push(RecentQuestion { id: question.id.clone(), at_ms: now });
+        g.recent_questions
+            .push(RecentQuestion { id: AdaptiveQuizEngine::prompt_history_key(&question.prompt), at_ms: now });
+        g.recent_questions.retain(|r| now - r.at_ms <= HISTORY_WINDOW_MS);
 
         // Finalize when all questions answered and not locked.
         let done = g
@@ -834,7 +1052,7 @@ impl ChildRuntime {
             .active_app_id
             .as_ref()
             .and_then(|id| g.rules.iter().find(|r| &r.app_id == id));
-        g.session = SessionEngine::on_quiz_passed(g.session.clone(), g.elapsed_ms, rule, &g.policy, false);
+        g.session = SessionEngine::on_quiz_passed(g.session.clone(), g.elapsed_ms, rule, &g.policy, SessionEngine::is_weekend_local());
         // Ensure at least 15 minutes screen time grace window after parent PIN skip
         let grace_ms = 15 * 60_000;
         let current_grace = g.session.quiz_grace_until_elapsed_ms.unwrap_or(g.elapsed_ms);
@@ -889,6 +1107,10 @@ impl ChildRuntime {
             quiz_passes_today: g.quiz_passes_today,
             daily_usage_history: g.daily_usage_history.clone(),
             daily_total_history: g.daily_total_history.clone(),
+            skills: g.skills.values().cloned().collect(),
+            pending_attempts: g.pending_attempts.clone(),
+            explorer: g.explorer.clone(),
+            stickers: g.stickers.clone(),
         }
     }
 
@@ -924,6 +1146,7 @@ impl ChildRuntime {
             if let Some(until) = quiz.lock_until_ms {
                 if elapsed >= until {
                     quiz.lock_until_ms = None;
+                    quiz.started_elapsed_ms = elapsed;
                     quiz.index >= quiz.questions.len()
                 } else {
                     false
@@ -957,6 +1180,9 @@ fn resolve_screen(g: &Inner) -> ChildScreen {
     if !g.checklist_complete {
         return ChildScreen::Checklist;
     }
+    if g.nursery.is_some() {
+        return ChildScreen::Nursery;
+    }
     match g.session.phase {
         SessionPhase::QuizDue => ChildScreen::Quiz,
         SessionPhase::Shielded => ChildScreen::FailLock,
@@ -978,44 +1204,75 @@ fn begin_quiz(g: &mut Inner) {
             g.pack_source = "builtin".into();
         }
     }
+    // Early learners (3–6) learn first, then play — no knowledge check unless the parent
+    // enabled one (Android: AGE_3_TO_6 && !nurseryCheckEnabled → nursery teaching).
+    if g.age_band.is_early_learner() && !g.policy.nursery_check_enabled {
+        let curriculum = meritscreen_core::nursery::builtin_curriculum();
+        let seed = (wall_now_ms() / 86_400_000).max(0) as u64;
+        let (video, category) = if g.policy.nursery_video_enabled {
+            curriculum
+                .pick_video(&g.policy.nursery_playlist_id, &g.nursery_recent_videos, g.nursery_last_category.as_deref(), seed)
+                .map(|(v, c)| (Some(v), Some(c)))
+                .unwrap_or((None, None))
+        } else {
+            (None, None)
+        };
+        if let Some(v) = &video {
+            g.nursery_recent_videos.push(v.video_id.clone());
+            g.nursery_recent_videos = g.nursery_recent_videos.split_off(g.nursery_recent_videos.len().saturating_sub(8));
+        }
+        g.nursery_last_category = category.clone();
+        g.nursery = Some(NurseryDto {
+            video,
+            video_category: category,
+            items: curriculum.pick_teach_items(3, seed),
+        });
+        g.quiz_error = None;
+        g.last_result = None;
+        g.last_feedback = None;
+        return;
+    }
     let total = AdaptiveQuizEngine::questions_per_quiz(g.policy.questions_per_quiz) as usize;
     let mut rng = StdRng::seed_from_u64(g.elapsed_ms as u64 ^ 0xC5_1D_u64);
     let mut used = HashSet::new();
     let mut questions = Vec::new();
-    let skills = HashMap::new();
-    let age = g.age_band;
-    let bank: Vec<QuizQuestion> = g
-        .bank
+    let skills = g.skills.clone();
+    let start_level = AdaptiveQuizEngine::session_start_level(&skills);
+    let now = wall_now_ms();
+    let recent: HashSet<String> = g
+        .recent_questions
         .iter()
-        .filter(|q| q.age_band == age)
-        .cloned()
+        .filter(|r| now - r.at_ms <= HISTORY_WINDOW_MS)
+        .map(|r| r.id.clone())
         .collect();
-    let bank = if bank.is_empty() {
-        g.bank.clone()
-    } else {
-        bank
-    };
+    let band = g.age_band.bank_band();
+    let bank: Vec<QuizQuestion> = g.bank.iter().filter(|q| q.age_band == band).cloned().collect();
     for _ in 0..total {
         if let Some(q) =
-            AdaptiveQuizEngine::pick_next(&bank, &skills, &HashSet::new(), &used, None, 2, &mut rng)
+            AdaptiveQuizEngine::pick_next(&bank, &skills, &recent, &used, None, start_level, &mut rng)
         {
             used.insert(q.id.clone());
             questions.push(q);
         }
     }
-    if questions.is_empty() {
-        // Builtin fallback: take first N from bank.
-        questions = bank.iter().take(total.max(1)).cloned().collect();
-        g.pack_source = "builtin".into();
-    }
+    g.quiz_error = if questions.is_empty() {
+        Some("Quiz questions aren’t ready yet. Try again later.".into())
+    } else if questions.len() < total {
+        Some("Not enough distinct quiz questions are available yet. Try again after the quiz pack finishes syncing.".into())
+    } else {
+        None
+    };
     g.quiz = Some(ActiveQuiz {
         questions,
         index: 0,
         correct: 0,
         used_ids: used,
-        skills: HashMap::new(),
+        skills,
         lock_until_ms: None,
         last_wrong_concept: None,
+        last_wrong_question: None,
+        started_elapsed_ms: g.elapsed_ms,
+        quiz_seconds_at_start: g.quiz_seconds_today,
     });
     g.last_result = None;
     g.last_feedback = None;
@@ -1029,18 +1286,49 @@ fn finish_quiz(g: &mut Inner) {
     let result = AdaptiveQuizEngine::finalize(quiz.correct, total, g.policy.pass_score_percent);
     g.last_result = Some(result.clone());
     g.quiz_attempts_today = g.quiz_attempts_today.saturating_add(1);
+    g.skills = quiz.skills.clone();
     let rule = g
         .session
         .active_app_id
         .as_ref()
-        .and_then(|id| g.rules.iter().find(|r| &r.app_id == id));
+        .and_then(|id| g.rules.iter().find(|r| &r.app_id == id).cloned());
+    // Android records every completed quiz for upload, pass or fail.
+    let weekend = SessionEngine::is_weekend_local();
+    let mut extra = 0;
+    if result.passed && g.policy.rewards_enabled {
+        extra = g.policy.extra_minutes_on_pass;
+        if g.policy.weekend_bonus_enabled && weekend {
+            extra += meritscreen_core::app_config::WEEKEND_BONUS_EXTRA_MINUTES;
+        }
+    }
+    let mut topics: Vec<String> = quiz.questions.iter().map(|q| q.topic.clone()).collect();
+    topics.sort();
+    topics.dedup();
+    let attempt = QuizAttemptRecord {
+        attempt_id: Uuid::new_v4().to_string(),
+        created_at_epoch_ms: wall_now_ms(),
+        topics,
+        score: quiz.correct,
+        total,
+        passed: result.passed,
+        extra_minutes_granted: extra,
+        time_spent_seconds: g.quiz_seconds_today.saturating_sub(quiz.quiz_seconds_at_start) as u32,
+    };
+    let attempt_id = attempt.attempt_id.clone();
+    g.pending_attempts.push(attempt);
     if result.passed {
         g.quiz_passes_today = g.quiz_passes_today.saturating_add(1);
-        g.session =
-            SessionEngine::on_quiz_passed(g.session.clone(), g.elapsed_ms, rule, &g.policy, false);
+        award_pass(g, Some(&attempt_id), None);
+        g.session = SessionEngine::on_quiz_passed(
+            g.session.clone(),
+            g.elapsed_ms,
+            rule.as_ref(),
+            &g.policy,
+            weekend,
+        );
         g.screen_override = Some(ChildScreen::Launcher);
     } else {
-        g.session = SessionEngine::on_quiz_failed(g.session.clone(), g.elapsed_ms, &g.policy, rule);
+        g.session = SessionEngine::on_quiz_failed(g.session.clone(), g.elapsed_ms, &g.policy, rule.as_ref());
         g.screen_override = Some(ChildScreen::FailLock);
     }
 }
@@ -1409,3 +1697,123 @@ mod tests {
     }
 }
 
+
+#[cfg(test)]
+mod quiz_reporting_tests {
+    use super::*;
+
+    fn paired_runtime() -> (tempfile::TempDir, ChildRuntime) {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = ChildRuntime::with_secrets_dir(dir.path());
+        {
+            let mut g = rt.inner.lock();
+            g.paired = true;
+            g.child_id = Some("c1".into());
+            g.checklist_complete = true;
+            g.policy.questions_per_quiz = 3;
+        }
+        (dir, rt)
+    }
+
+    fn answer_all(rt: &ChildRuntime, correct: bool) {
+        for _ in 0..10 {
+            let st = rt.ui_state();
+            let Some(q) = st.quiz else { break };
+            let inner = rt.inner.lock();
+            let question = inner.quiz.as_ref().unwrap().questions[q.index as usize].clone();
+            drop(inner);
+            let pick = question
+                .choices
+                .iter()
+                .find(|c| c.correct == correct)
+                .unwrap()
+                .id
+                .clone();
+            rt.answer_quiz(&pick).unwrap();
+            // Burn the 30 s lock if this was the last (wrong) answer.
+            let mut g = rt.inner.lock();
+            if let Some(quiz) = g.quiz.as_mut() {
+                if quiz.lock_until_ms.is_some() {
+                    g.elapsed_ms += 31_000;
+                }
+            }
+            drop(g);
+            let _ = rt.ui_state();
+        }
+    }
+
+    #[test]
+    fn passed_quiz_records_attempt_skill_sticker_and_xp() {
+        let (_d, rt) = paired_runtime();
+        rt.force_quiz_due().unwrap();
+        answer_all(&rt, true);
+        let st = rt.ui_state();
+        assert!(st.last_result.unwrap().passed);
+        assert_eq!(st.explorer.xp, 10);
+        assert_eq!(st.stickers.len(), 1);
+        assert_eq!(st.stickers[0].sticker_id, "sprout_star");
+        assert_eq!(st.last_award.as_ref().unwrap().xp_gained, 10);
+        let telem = rt.get_report_telemetry();
+        assert_eq!(telem.pending_attempts.len(), 1);
+        assert!(telem.pending_attempts[0].passed);
+        assert!(!telem.skills.is_empty());
+        assert_eq!(telem.skills.iter().map(|s| s.total_attempts).sum::<u32>(), 3);
+        // Draining is one-shot (Guardian upload queue semantics).
+        assert_eq!(rt.drain_pending_attempts().len(), 1);
+        assert!(rt.drain_pending_attempts().is_empty());
+    }
+
+    #[test]
+    fn failed_quiz_records_attempt_without_sticker() {
+        let (_d, rt) = paired_runtime();
+        rt.force_quiz_due().unwrap();
+        answer_all(&rt, false);
+        let st = rt.ui_state();
+        assert!(!st.last_result.unwrap().passed);
+        assert!(st.stickers.is_empty());
+        assert_eq!(st.explorer.xp, 0);
+        let telem = rt.get_report_telemetry();
+        assert_eq!(telem.pending_attempts.len(), 1);
+        assert!(!telem.pending_attempts[0].passed);
+        assert!(telem.skills.iter().all(|s| !s.weak_concepts.is_empty()));
+    }
+
+    #[test]
+    fn skills_and_history_survive_restart_and_shape_next_quiz() {
+        let (dir, rt) = paired_runtime();
+        rt.force_quiz_due().unwrap();
+        answer_all(&rt, true);
+        rt.flush_persisted();
+        let rt2 = ChildRuntime::with_secrets_dir(dir.path());
+        let telem = rt2.get_report_telemetry();
+        assert_eq!(telem.skills.iter().map(|s| s.total_correct).sum::<u32>(), 3);
+        let g = rt2.inner.lock();
+        assert_eq!(g.recent_questions.len(), 6, "id + prompt key per question");
+        assert_eq!(g.explorer.xp, 10);
+    }
+
+    #[test]
+    fn early_learner_gets_nursery_teach_first() {
+        let (_d, rt) = paired_runtime();
+        rt.inner.lock().age_band = AgeBand::Age3To4;
+        let st = rt.force_quiz_due().unwrap();
+        assert_eq!(st.screen, ChildScreen::Nursery);
+        let n = st.nursery.unwrap();
+        assert_eq!(n.items.len(), 3);
+        assert!(n.video.is_some());
+        let done = rt.complete_nursery().unwrap();
+        assert_eq!(done.screen, ChildScreen::Launcher);
+        assert_eq!(done.stickers.len(), 1);
+        assert_eq!(done.stickers[0].source, "NURSERY_TEACH");
+        // With a parent-enabled knowledge check, questions appear instead.
+        let (_d2, rt2) = paired_runtime();
+        {
+            let mut g = rt2.inner.lock();
+            g.age_band = AgeBand::Age5To6;
+            g.policy.nursery_check_enabled = true;
+        }
+        let st2 = rt2.force_quiz_due().unwrap();
+        assert!(st2.quiz.is_some());
+        assert!(st2.quiz.unwrap().interaction_type != "TAP_TEXT" || st2.early_learner);
+    }
+}
