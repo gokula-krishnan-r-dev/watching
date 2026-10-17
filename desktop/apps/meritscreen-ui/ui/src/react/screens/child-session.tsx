@@ -514,7 +514,7 @@ function Quiz({ bridge, st, skipOpen, onSkip, onAnswered }: { bridge: AppBridge;
           >
             <span className="flex items-center gap-3">
               {visualEmoji(c.imageTag) && <span className="text-4xl" aria-hidden="true">{visualEmoji(c.imageTag)}</span>}
-              <span>{c.text || visualLabel(c.imageTag)}</span>
+              {c.text !== visualEmoji(c.imageTag) && <span>{c.text || visualLabel(c.imageTag)}</span>}
             </span>
             <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/10 font-mono text-sm">
               {i + 1}
