@@ -29,6 +29,36 @@
   --ms-on-error-container: #93000a;
   --ms-success: #13522f;
   --ms-success-container: #a9e9b9;
+  /* Button system: single source of truth (react/ui/button.tsx + legacy .btn-*).
+     Every fg/bg pair >= WCAG AA 4.5:1 (tested in button.test.tsx). */
+  --ms-btn-primary-bg: #00514d;
+  --ms-btn-primary-fg: #ffffff;
+  --ms-btn-primary-hover-bg: #003f3c;
+  --ms-btn-primary-hover-fg: #ffffff;
+  --ms-btn-secondary-bg: #eeddc7;
+  --ms-btn-secondary-fg: #4a4033;
+  --ms-btn-secondary-hover-bg: #e3d0b3;
+  --ms-btn-secondary-hover-fg: #4a4033;
+  --ms-btn-outline-bg: transparent;
+  --ms-btn-outline-fg: #1c1c19;
+  --ms-btn-outline-border: #6f7978;
+  --ms-btn-outline-hover-bg: #f6f3ee;
+  --ms-btn-destructive-bg: #ba1a1a;
+  --ms-btn-destructive-fg: #ffffff;
+  --ms-btn-destructive-hover-bg: #93000a;
+  --ms-btn-destructive-hover-fg: #ffffff;
+  --ms-btn-ghost-fg: #1c1c19;
+  --ms-btn-ghost-hover-bg: #f6f3ee;
+  --ms-btn-tab-bg: transparent;
+  --ms-btn-tab-fg: #3f4947;
+  --ms-btn-tab-hover-bg: #f6f3ee;
+  --ms-btn-tab-selected-bg: #0f6b66;
+  --ms-btn-tab-selected-fg: #ffffff;
+  --ms-btn-tab-selected-hover-bg: #00514d;
+  --ms-btn-tab-selected-hover-fg: #ffffff;
+  --ms-btn-disabled-bg: #ebe8e3;
+  --ms-btn-disabled-fg: #3f4947;
+  --ms-focus-ring: #00514d;
   --ms-radius: 14px;
   --ms-radius-lg: 20px;
   --ms-space-1: 8px;
@@ -64,6 +94,35 @@
   --ms-on-error-container: #ffdad6;
   --ms-success: #9ad4ae;
   --ms-success-container: #13522f;
+  /* Button system (dark): destructive uses deep red, not pale --ms-error, so white text stays AA. */
+  --ms-btn-primary-bg: #7ed4cc;
+  --ms-btn-primary-fg: #003734;
+  --ms-btn-primary-hover-bg: #5ec2b8;
+  --ms-btn-primary-hover-fg: #003734;
+  --ms-btn-secondary-bg: #3c3429;
+  --ms-btn-secondary-fg: #eeddc7;
+  --ms-btn-secondary-hover-bg: #4d4234;
+  --ms-btn-secondary-hover-fg: #eeddc7;
+  --ms-btn-outline-bg: transparent;
+  --ms-btn-outline-fg: #e4eeec;
+  --ms-btn-outline-border: #8a9a97;
+  --ms-btn-outline-hover-bg: #1f272b;
+  --ms-btn-destructive-bg: #b3261e;
+  --ms-btn-destructive-fg: #ffffff;
+  --ms-btn-destructive-hover-bg: #93000a;
+  --ms-btn-destructive-hover-fg: #ffffff;
+  --ms-btn-ghost-fg: #e4eeec;
+  --ms-btn-ghost-hover-bg: #1f272b;
+  --ms-btn-tab-bg: transparent;
+  --ms-btn-tab-fg: #b5c2bf;
+  --ms-btn-tab-hover-bg: #1f272b;
+  --ms-btn-tab-selected-bg: #0b5c58;
+  --ms-btn-tab-selected-fg: #e4eeec;
+  --ms-btn-tab-selected-hover-bg: #0f6b66;
+  --ms-btn-tab-selected-hover-fg: #ffffff;
+  --ms-btn-disabled-bg: #273136;
+  --ms-btn-disabled-fg: #b5c2bf;
+  --ms-focus-ring: #7ed4cc;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -92,6 +151,34 @@
     --ms-on-error-container: #ffdad6;
     --ms-success: #9ad4ae;
     --ms-success-container: #13522f;
+    --ms-btn-primary-bg: #7ed4cc;
+    --ms-btn-primary-fg: #003734;
+    --ms-btn-primary-hover-bg: #5ec2b8;
+    --ms-btn-primary-hover-fg: #003734;
+    --ms-btn-secondary-bg: #3c3429;
+    --ms-btn-secondary-fg: #eeddc7;
+    --ms-btn-secondary-hover-bg: #4d4234;
+    --ms-btn-secondary-hover-fg: #eeddc7;
+    --ms-btn-outline-bg: transparent;
+    --ms-btn-outline-fg: #e4eeec;
+    --ms-btn-outline-border: #8a9a97;
+    --ms-btn-outline-hover-bg: #1f272b;
+    --ms-btn-destructive-bg: #b3261e;
+    --ms-btn-destructive-fg: #ffffff;
+    --ms-btn-destructive-hover-bg: #93000a;
+    --ms-btn-destructive-hover-fg: #ffffff;
+    --ms-btn-ghost-fg: #e4eeec;
+    --ms-btn-ghost-hover-bg: #1f272b;
+    --ms-btn-tab-bg: transparent;
+    --ms-btn-tab-fg: #b5c2bf;
+    --ms-btn-tab-hover-bg: #1f272b;
+    --ms-btn-tab-selected-bg: #0b5c58;
+    --ms-btn-tab-selected-fg: #e4eeec;
+    --ms-btn-tab-selected-hover-bg: #0f6b66;
+    --ms-btn-tab-selected-hover-fg: #ffffff;
+    --ms-btn-disabled-bg: #273136;
+    --ms-btn-disabled-fg: #b5c2bf;
+    --ms-focus-ring: #7ed4cc;
   }
 }
 
@@ -220,8 +307,8 @@ body {
 }
 
 .chip[aria-pressed="true"] {
-  background: var(--ms-surface-card);
-  color: var(--ms-primary);
+  background: var(--ms-btn-tab-selected-bg);
+  color: var(--ms-btn-tab-selected-fg);
   font-weight: 600;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
@@ -310,7 +397,9 @@ body {
 
 .btn:disabled,
 .btn[aria-disabled="true"] {
-  opacity: 0.55;
+  background: var(--ms-btn-disabled-bg);
+  color: var(--ms-btn-disabled-fg);
+  opacity: 0.75;
   cursor: not-allowed;
   transform: none !important;
 }
@@ -332,7 +421,7 @@ body {
 
 /* WCAG-friendly focus rings */
 :focus-visible {
-  outline: 3px solid var(--ms-primary);
+  outline: 3px solid var(--ms-focus-ring, var(--ms-primary));
   outline-offset: 3px;
 }
 
@@ -349,24 +438,29 @@ body {
 }
 
 .btn-primary {
-  background: var(--ms-primary);
-  color: var(--ms-on-primary);
+  background: var(--ms-btn-primary-bg);
+  color: var(--ms-btn-primary-fg);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 4px 12px -2px color-mix(in srgb, var(--ms-primary) 35%, transparent);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ms-primary) 88%, #000);
+  background: var(--ms-btn-primary-hover-bg);
+  color: var(--ms-btn-primary-hover-fg);
 }
 
 .btn-secondary {
-  background: var(--ms-surface-low);
-  color: var(--ms-on-surface);
+  background: var(--ms-btn-secondary-bg);
+  color: var(--ms-btn-secondary-fg);
   border: 1px solid var(--ms-outline-subtle);
 }
+.btn-outline { background: var(--ms-btn-outline-bg); color: var(--ms-btn-outline-fg); border: 1px solid var(--ms-btn-outline-border); }
+.btn-outline:hover:not(:disabled) { background: var(--ms-btn-outline-hover-bg); }
+.btn-ghost { background: transparent; color: var(--ms-btn-ghost-fg); border: 1px solid transparent; }
+.btn-ghost:hover:not(:disabled) { background: var(--ms-btn-ghost-hover-bg); }
 
 .btn-secondary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ms-surface-low) 80%, var(--ms-primary-fixed) 20%);
-  border-color: color-mix(in srgb, var(--ms-primary) 40%, var(--ms-outline));
+  background: var(--ms-btn-secondary-hover-bg);
+  color: var(--ms-btn-secondary-hover-fg);
 }
 
 .meta {
@@ -653,13 +747,14 @@ body {
 }
 
 .btn-danger {
-  background: var(--ms-error);
-  color: #ffffff;
+  background: var(--ms-btn-destructive-bg);
+  color: var(--ms-btn-destructive-fg);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 4px 12px -2px color-mix(in srgb, var(--ms-error) 35%, transparent);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ms-error) 88%, #000);
+  background: var(--ms-btn-destructive-hover-bg);
+  color: var(--ms-btn-destructive-hover-fg);
 }
 
 /* Parent Navigation & Detail Cards */
@@ -1838,8 +1933,8 @@ body {
 }
 
 .dash-child-tab.active {
-  background: var(--ms-primary-container);
-  color: var(--ms-on-primary-container);
+  background: var(--ms-btn-tab-selected-bg);
+  color: var(--ms-btn-tab-selected-fg);
   border-color: var(--ms-primary);
   font-weight: 600;
   box-shadow: 0 2px 8px color-mix(in srgb, var(--ms-primary) 20%, transparent);
@@ -1876,8 +1971,8 @@ body {
 }
 
 .dash-time-chip.active {
-  background: var(--ms-primary);
-  color: var(--ms-on-primary);
+  background: var(--ms-btn-primary-bg);
+  color: var(--ms-btn-primary-fg);
   font-weight: 600;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
 }
@@ -1902,8 +1997,8 @@ body {
   width: 44px;
   height: 44px;
   border-radius: 12px;
-  background: var(--ms-primary);
-  color: var(--ms-on-primary);
+  background: var(--ms-btn-primary-bg);
+  color: var(--ms-btn-primary-fg);
   display: grid;
   place-items: center;
   font-size: 22px;
@@ -3151,9 +3246,9 @@ body {
 }
 
 .chip-option.active {
-  background: var(--ms-primary);
-  color: #ffffff;
-  border-color: var(--ms-primary);
+  background: var(--ms-btn-primary-bg);
+  color: var(--ms-btn-primary-fg);
+  border-color: var(--ms-btn-primary-bg);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--ms-primary) 35%, transparent);
 }
 

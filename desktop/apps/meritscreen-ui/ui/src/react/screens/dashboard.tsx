@@ -205,7 +205,7 @@ export function DashboardScreen({ bridge }: { bridge: AppBridge }) {
                           role="tab"
                           size="sm"
                           aria-selected={c.childId === focusId}
-                          variant={c.childId === focusId ? "default" : "ghost"}
+                          variant="tab"
                           onClick={() => setSelected(c.childId)}
                         >
                           {c.displayName}
@@ -282,7 +282,7 @@ function ChildSummaryCard({
   const last = insight?.quiz.recent[0];
   return (
     <Card className={cn("flex h-full flex-col gap-3 p-4 transition-shadow", selected && "ring-2 ring-primary")}>
-      <Button variant="ghost" onClick={onSelect} className="h-auto w-full justify-start gap-3 px-1 py-1 text-left font-normal" aria-label={`Show ${card.displayName}’s week`} aria-pressed={selected}>
+      <Button variant="tab" onClick={onSelect} className="h-auto w-full justify-start gap-3 px-1 py-1 text-left font-normal" aria-label={`Show ${card.displayName}’s week`} aria-pressed={selected}>
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-secondary text-2xl" aria-hidden="true">
           {avatarFor(card.childId, card.displayName)}
         </span>

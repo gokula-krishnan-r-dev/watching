@@ -185,7 +185,7 @@ function ParentTray({ bridge, actions, initialChildId, reloadKey }: { bridge: Ap
       {kids.length > 1 && (
         <div role="tablist" aria-label="Child" className="flex gap-1 overflow-x-auto">
           {kids.map((k) => (
-            <Button key={k.childId} role="tab" aria-selected={k.childId === active} size="sm" variant={k.childId === active ? "default" : "ghost"} onClick={() => setActive(k.childId)}>
+            <Button key={k.childId} role="tab" aria-selected={k.childId === active} size="sm" variant="tab" onClick={() => setActive(k.childId)}>
               {k.displayName}
             </Button>
           ))}
@@ -244,7 +244,7 @@ function ParentTray({ bridge, actions, initialChildId, reloadKey }: { bridge: Ap
             <Button size="sm" variant="secondary" disabled={busy != null || bonusRoom <= 0} loading={busy === "b30"} onClick={() => void grant("b30", 30)} aria-label="Give 30 bonus minutes today">
               <Gift className="h-4 w-4" aria-hidden="true" /> +30 min
             </Button>
-            <Button size="sm" variant="secondary" className="text-destructive" disabled={busy != null || bonusRoom <= 0} onClick={() => setConfirmEmergency(true)} aria-label="Emergency unlock: 1 hour today">
+            <Button size="sm" variant="outline" className="text-destructive" disabled={busy != null || bonusRoom <= 0} onClick={() => setConfirmEmergency(true)} aria-label="Emergency unlock: 1 hour today">
               <Siren className="h-4 w-4" aria-hidden="true" /> +1 h
             </Button>
           </div>

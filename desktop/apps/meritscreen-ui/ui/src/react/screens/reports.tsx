@@ -69,7 +69,7 @@ export function ReportsScreen({ bridge, childId }: { bridge: AppBridge; childId?
       {children.length > 1 && (
         <div role="tablist" aria-label="Child" className="flex flex-wrap gap-2">
           {children.map((c) => (
-            <Button key={c.childId} role="tab" aria-selected={c.childId === active} size="sm" variant={c.childId === active ? "default" : "secondary"} onClick={() => setActive(c.childId)}>
+            <Button key={c.childId} role="tab" aria-selected={c.childId === active} size="sm" variant="tab" onClick={() => setActive(c.childId)}>
               {c.displayName}
             </Button>
           ))}

@@ -541,6 +541,10 @@ async function ensureBootstrap(): Promise<void> {
   if (bootstrap) return;
   try {
     bootstrap = await invoke<BootstrapDto>("get_bootstrap");
+    // The tray/shield windows reach screens through here, not renderRoleGate:
+    // apply the saved appearance so popovers don't fall back to OS media defaults.
+    applyTheme(bootstrap.appearance);
+    if (bootstrap.platform) document.documentElement.classList.add("platform-" + bootstrap.platform);
   } catch {
     // Browser preview without Tauri — keep defaults.
   }

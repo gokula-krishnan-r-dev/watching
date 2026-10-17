@@ -105,7 +105,7 @@ export function AllowlistScreen({ bridge, childId }: { bridge: AppBridge; childI
                         onClick={() => set(r.appId, { allowed: allow })}
                         className={cn(
                           "cursor-pointer px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40",
-                          r.allowed === allow ? (allow ? "bg-primary text-primary-foreground" : "bg-destructive text-white") : "bg-card text-muted-foreground hover:bg-muted",
+                          r.allowed === allow ? (allow ? "bg-[var(--ms-btn-primary-bg)] text-[var(--ms-btn-primary-fg)]" : "bg-[var(--ms-btn-destructive-bg)] text-[var(--ms-btn-destructive-fg)]") : "bg-card text-muted-foreground hover:bg-muted",
                         )}
                       >
                         {allow ? "Allow" : "Block"}

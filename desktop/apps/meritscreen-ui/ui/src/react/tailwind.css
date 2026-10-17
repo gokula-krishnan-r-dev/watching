@@ -1,7 +1,7 @@
 /* Tailwind v4 for the React/shadcn layer only.
    No preflight (the legacy vanilla screens rely on styles.css), and sources are
    limited to src/react so vanilla class names are never regenerated. */
-@layer theme, utilities;
+@layer base, theme, utilities;
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 @source "./";
@@ -18,7 +18,7 @@
   --color-primary: var(--ms-primary);
   --color-primary-foreground: var(--ms-on-primary);
   --color-secondary: var(--ms-secondary-container);
-  --color-secondary-foreground: var(--ms-on-secondary-container);
+  --color-secondary-foreground: var(--ms-btn-secondary-fg);
   --color-destructive: var(--ms-error);
   --color-destructive-container: var(--ms-error-container);
   --color-on-destructive-container: var(--ms-on-error-container);
@@ -26,7 +26,7 @@
   --color-success-container: var(--ms-success-container);
   --color-border: var(--ms-outline-subtle);
   --color-input: var(--ms-outline);
-  --color-ring: var(--ms-primary);
+  --color-ring: var(--ms-focus-ring, var(--ms-primary));
   --radius-md: var(--ms-radius);
   --radius-lg: var(--ms-radius-lg);
   --font-sans: var(--ms-font);
@@ -40,8 +40,12 @@
 
 /* No Tailwind preflight (legacy screens), so form controls keep UA styles:
    buttons would render near-black UA text on dark card backgrounds. Inherit
-   the theme text color/font instead (scoped to the React root only). */
-.ms-react-root button, .ms-react-root input, .ms-react-root select, .ms-react-root textarea {
-  color: inherit;
-  font: inherit;
+   the theme text color/font instead (scoped to the React root only).
+   This MUST stay in the base layer: unlayered, it overrides every Tailwind
+   text-* utility on buttons (black text on teal primary buttons). */
+@layer base {
+  .ms-react-root button, .ms-react-root input, .ms-react-root select, .ms-react-root textarea {
+    color: inherit;
+    font: inherit;
+  }
 }
