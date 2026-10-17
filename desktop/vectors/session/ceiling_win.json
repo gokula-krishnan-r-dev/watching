@@ -1,6 +1,6 @@
 {
   "id": "ceiling_win",
-  "description": "Hitting daily ceiling during a block raises quiz_due (tighter rule wins)",
+  "description": "Hitting the daily ceiling during a block raises the dedicated ceiling lock (hard cap, not a quiz)",
   "policy": {
     "quizMode": "app_block",
     "dailyCeilingMinutes": 5,
@@ -24,11 +24,18 @@
     "minutesUsedToday": 0
   },
   "steps": [
-    { "op": "open_app", "nowMs": 0 },
-    { "op": "tick", "nowMs": 300001, "isAppActive": true }
+    {
+      "op": "open_app",
+      "nowMs": 0
+    },
+    {
+      "op": "tick",
+      "nowMs": 300001,
+      "isAppActive": true
+    }
   ],
   "expect": {
-    "phase": "quiz_due",
+    "phase": "ceiling_reached",
     "minutesUsedToday": 5
   }
 }

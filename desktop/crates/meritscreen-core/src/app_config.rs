@@ -88,3 +88,10 @@ pub const BONUS_STEP_LARGE_MINUTES: u32 = 30;
 pub const EMERGENCY_UNLOCK_MINUTES: u32 = 60;
 /// Hard cap on bonus minutes granted for a single day.
 pub const BONUS_MAX_MINUTES_PER_DAY: u32 = 240;
+
+/// Hard cap on minutes earned/unlocked beyond the daily ceiling in one day
+/// (quiz earn-more extension + Parent PIN unlocks share this budget).
+pub const CEILING_EXTENSION_MAX_MINUTES_PER_DAY: u32 = 240;
+
+/// Minutes a Parent PIN unlock grants beyond the daily ceiling.
+pub const PARENT_PIN_UNLOCK_MINUTES: u32 = 15;

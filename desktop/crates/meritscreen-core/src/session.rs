@@ -16,6 +16,11 @@ pub enum SessionPhase {
     InBlock,
     QuizDue,
     Shielded,
+    /// Daily ceiling (parent limit + today's bonus + any earned extension) reached.
+    /// Hard lock: only emergency apps, Parent PIN unlock, or — when the parent
+    /// allows earning beyond the limit — a quiz can lift it. Distinct from
+    /// `QuizDue` so a passed interval quiz can never silently exceed the cap.
+    CeilingReached,
 }
 
 impl SessionPhase {
@@ -25,6 +30,7 @@ impl SessionPhase {
             Self::InBlock => "in_block",
             Self::QuizDue => "quiz_due",
             Self::Shielded => "shielded",
+            Self::CeilingReached => "ceiling_reached",
         }
     }
 
@@ -33,6 +39,7 @@ impl SessionPhase {
             "in_block" | "inblock" => Self::InBlock,
             "quiz_due" | "quizdue" => Self::QuizDue,
             "shielded" => Self::Shielded,
+            "ceiling_reached" | "ceilingreached" | "daily_limit" => Self::CeilingReached,
             _ => Self::Idle,
         }
     }
@@ -55,6 +62,11 @@ pub struct SessionSnapshot {
     pub quiz_grace_until_elapsed_ms: Option<i64>,
     /// Latest child-local day (`YYYY-MM-DD`) observed; guards bonus time against clock rollback.
     pub max_local_day: String,
+    /// Extra minutes earned today beyond the daily ceiling (quiz earn-more when the
+    /// parent allows it, or a Parent PIN unlock). Today-only: cleared at midnight,
+    /// capped by `app_config::CEILING_EXTENSION_MAX_MINUTES_PER_DAY`.
+    #[serde(default)]
+    pub ceiling_extension_minutes: u32,
 }
 
 impl Default for SessionSnapshot {
@@ -73,6 +85,7 @@ impl Default for SessionSnapshot {
             last_tick_elapsed_ms: None,
             quiz_grace_until_elapsed_ms: None,
             max_local_day: local_today_key(),
+            ceiling_extension_minutes: 0,
         }
     }
 }
@@ -120,6 +133,23 @@ impl SessionSnapshot {
     pub fn active_bonus_minutes(&self, policy: &ChildPolicy) -> u32 {
         policy.active_bonus_minutes(&local_today_key(), &self.max_local_day)
     }
+
+    /// True while a quiz-pass grace window is still running at `now_elapsed_ms`.
+    /// (Expiry is time-checked; merely having a stale timestamp is not grace.)
+    pub fn under_grace(&self, now_elapsed_ms: i64) -> bool {
+        self.quiz_grace_until_elapsed_ms
+            .is_some_and(|g| now_elapsed_ms < g)
+    }
+
+    /// True when today's usage has reached the effective daily ceiling at `now`.
+    pub fn ceiling_reached(&self, policy: &ChildPolicy, now_elapsed_ms: i64) -> bool {
+        if self.under_grace(now_elapsed_ms) {
+            return false;
+        }
+        effective_ceiling_opt(policy, self)
+            .map(|c| self.minutes_used_today >= c)
+            .unwrap_or(false)
+    }
 }
 
 pub fn today_key() -> String {
@@ -133,9 +163,12 @@ pub fn local_today_key() -> String {
 
 /// Daily limit including today's bonus; `None` when the policy has no limit.
 pub fn effective_ceiling_opt(policy: &ChildPolicy, snap: &SessionSnapshot) -> Option<u32> {
-    policy
-        .daily_ceiling_minutes
-        .map(|c| c + snap.active_bonus_minutes(policy))
+    policy.daily_ceiling_minutes.map(|c| {
+        c + snap.active_bonus_minutes(policy)
+            + snap
+                .ceiling_extension_minutes
+                .min(crate::app_config::CEILING_EXTENSION_MAX_MINUTES_PER_DAY)
+    })
 }
 
 /// Daily limit including today's bonus, falling back to the default limit.
@@ -156,12 +189,24 @@ impl SessionEngine {
         if snapshot.day_key == day_key {
             return snapshot;
         }
+        // Clock wound back to an earlier day than this device has already seen:
+        // never reset today's usage (that would hand back a full day's limit).
+        if !snapshot.max_local_day.is_empty() && day_key < snapshot.max_local_day.as_str() {
+            return snapshot;
+        }
         let mut next = snapshot;
-        let was_in_block = next.phase == SessionPhase::InBlock;
+        let was_locked = matches!(
+            next.phase,
+            SessionPhase::InBlock | SessionPhase::CeilingReached
+        );
         next.day_key = day_key.to_string();
+        if day_key > next.max_local_day.as_str() {
+            next.max_local_day = day_key.to_string();
+        }
         next.minutes_used_today = 0;
         next.minutes_accrued_in_block = 0.0;
-        if was_in_block {
+        next.ceiling_extension_minutes = 0;
+        if was_locked {
             next.phase = SessionPhase::Idle;
             next.active_package = None;
             next.active_app_id = None;
@@ -182,7 +227,7 @@ impl SessionEngine {
             now_elapsed_ms,
             policy,
             is_app_active,
-            &today_key(),
+            &local_today_key(),
         )
     }
 
@@ -200,6 +245,31 @@ impl SessionEngine {
             state.max_local_day = local;
         }
         state = Self::expire_shield_if_needed(state, now_elapsed_ms);
+
+        // Parent pause: time does not accrue and the lock (if any) stays.
+        if policy.paused {
+            if state.phase == SessionPhase::InBlock {
+                state.last_tick_elapsed_ms = Some(now_elapsed_ms);
+            }
+            return state;
+        }
+
+        // Daily-limit lock: no accrual while locked; lift only when a live
+        // policy change (bonus / raised limit / new day) covers usage again.
+        if state.phase == SessionPhase::CeilingReached {
+            return Self::lift_ceiling_if_covered(state, policy, now_elapsed_ms);
+        }
+
+        // A session restored or re-policy'd already at the cap locks at once,
+        // even before the next active minute accrues.
+        if matches!(state.phase, SessionPhase::Idle | SessionPhase::InBlock)
+            && state.ceiling_reached(policy, now_elapsed_ms)
+        {
+            state.phase = SessionPhase::CeilingReached;
+            state.block_started_elapsed_ms = None;
+            state.quiz_grace_until_elapsed_ms = None;
+            return state;
+        }
 
         if state.phase != SessionPhase::InBlock {
             return state;
@@ -232,21 +302,19 @@ impl SessionEngine {
             state.minutes_used_today = today;
             state.last_tick_elapsed_ms = Some(now_elapsed_ms);
 
-            let under_grace = state
-                .quiz_grace_until_elapsed_ms
-                .is_some_and(|g| now_elapsed_ms < g);
             // No parent daily limit ⇒ the daily ceiling can never be hit.
-            let ceiling_hit = effective_ceiling_opt(policy, &state)
-                .map(|ceiling| today >= ceiling && !under_grace)
-                .unwrap_or(false);
-            let block_hit = new_accrued_minutes >= f64::from(state.block_duration_minutes);
-
-            if ceiling_hit
-                || (block_hit
-                    && matches!(
-                        policy.quiz_mode,
-                        QuizMode::AppBlock | QuizMode::DeviceInterval
-                    ))
+            // The ceiling wins over the interval quiz: it is a hard daily cap,
+            // not another chance to earn past it (unless earn-more is on and a
+            // quiz pass explicitly extends it — see `on_quiz_passed`).
+            if state.ceiling_reached(policy, now_elapsed_ms) {
+                state.phase = SessionPhase::CeilingReached;
+                state.block_started_elapsed_ms = None;
+                state.quiz_grace_until_elapsed_ms = None;
+            } else if new_accrued_minutes >= f64::from(state.block_duration_minutes)
+                && matches!(
+                    policy.quiz_mode,
+                    QuizMode::AppBlock | QuizMode::DeviceInterval
+                )
             {
                 state.phase = SessionPhase::QuizDue;
                 state.block_started_elapsed_ms = None;
@@ -277,18 +345,17 @@ impl SessionEngine {
         if !rule.allowed || policy.paused {
             return state;
         }
-        if matches!(state.phase, SessionPhase::Shielded | SessionPhase::QuizDue) {
-            return state;
+        if matches!(
+            state.phase,
+            SessionPhase::Shielded | SessionPhase::QuizDue | SessionPhase::CeilingReached
+        ) {
+            return Self::lift_ceiling_if_covered(state, policy, now_elapsed_ms);
         }
 
-        let under_grace = state
-            .quiz_grace_until_elapsed_ms
-            .is_some_and(|g| now_elapsed_ms < g);
-        if let Some(ceiling) = effective_ceiling_opt(policy, &state) {
-            if state.minutes_used_today >= ceiling && !under_grace {
-                state.phase = SessionPhase::QuizDue;
-                return state;
-            }
+        if state.ceiling_reached(policy, now_elapsed_ms) {
+            state.phase = SessionPhase::CeilingReached;
+            state.block_started_elapsed_ms = None;
+            return state;
         }
 
         // Device interval: app switches do not reset accrued active-use time.
@@ -358,6 +425,17 @@ impl SessionEngine {
         if matches!(state.phase, SessionPhase::Shielded | SessionPhase::QuizDue) {
             return state;
         }
+        if state.phase == SessionPhase::CeilingReached {
+            state = Self::lift_ceiling_if_covered(state, policy, now_elapsed_ms);
+            if state.phase == SessionPhase::CeilingReached {
+                return state;
+            }
+        }
+        if state.ceiling_reached(policy, now_elapsed_ms) {
+            state.phase = SessionPhase::CeilingReached;
+            state.block_started_elapsed_ms = None;
+            return state;
+        }
         if state.phase == SessionPhase::InBlock {
             state.last_tick_elapsed_ms = Some(now_elapsed_ms);
             return state;
@@ -379,6 +457,30 @@ impl SessionEngine {
         policy: &ChildPolicy,
         is_weekend: bool,
     ) -> SessionSnapshot {
+        // At the daily ceiling a passed quiz only earns more time when the
+        // parent explicitly allows earning beyond the daily limit. Otherwise
+        // the hard cap stands and the device stays locked.
+        let at_ceiling = effective_ceiling_opt(policy, &snapshot)
+            .map(|c| snapshot.minutes_used_today >= c)
+            .unwrap_or(false);
+        let mut snapshot = snapshot;
+        if at_ceiling {
+            if !policy.allow_earn_beyond_daily_limit {
+                snapshot.phase = SessionPhase::CeilingReached;
+                snapshot.block_started_elapsed_ms = None;
+                snapshot.quiz_grace_until_elapsed_ms = None;
+                return snapshot;
+            }
+            let grant0 = rule
+                .map(|r| r.grant_on_pass_minutes)
+                .unwrap_or(policy.default_block_minutes)
+                .clamp(
+                    app_config::SESSION_CHUNK_MIN_MINUTES,
+                    app_config::SESSION_CHUNK_MAX_MINUTES,
+                );
+            snapshot.ceiling_extension_minutes = (snapshot.ceiling_extension_minutes + grant0)
+                .min(app_config::CEILING_EXTENSION_MAX_MINUTES_PER_DAY);
+        }
         let grant = rule
             .map(|r| r.grant_on_pass_minutes)
             .unwrap_or(policy.default_block_minutes)
@@ -487,23 +589,105 @@ impl SessionEngine {
         }
     }
 
+    /// Lift the daily-limit lock when usage is covered again (parent bonus,
+    /// raised limit, earn-more extension, or a new day). No-op otherwise.
+    pub fn lift_ceiling_if_covered(
+        snapshot: SessionSnapshot,
+        policy: &ChildPolicy,
+        now_elapsed_ms: i64,
+    ) -> SessionSnapshot {
+        if snapshot.phase != SessionPhase::CeilingReached {
+            return snapshot;
+        }
+        if snapshot.ceiling_reached(policy, now_elapsed_ms) {
+            return snapshot;
+        }
+        SessionSnapshot {
+            phase: SessionPhase::Idle,
+            block_started_elapsed_ms: None,
+            minutes_accrued_in_block: 0.0,
+            last_tick_elapsed_ms: Some(now_elapsed_ms),
+            ..snapshot
+        }
+    }
+
+    /// Re-evaluate the daily-limit lock against a freshly applied policy
+    /// (live parent change): lock a running/idle session that is now over the
+    /// ceiling, or release one that is covered again.
+    pub fn reconcile_ceiling(
+        snapshot: SessionSnapshot,
+        policy: &ChildPolicy,
+        now_elapsed_ms: i64,
+    ) -> SessionSnapshot {
+        if snapshot.phase == SessionPhase::CeilingReached {
+            return Self::lift_ceiling_if_covered(snapshot, policy, now_elapsed_ms);
+        }
+        if matches!(snapshot.phase, SessionPhase::InBlock | SessionPhase::Idle)
+            && snapshot.ceiling_reached(policy, now_elapsed_ms)
+        {
+            return SessionSnapshot {
+                phase: SessionPhase::CeilingReached,
+                block_started_elapsed_ms: None,
+                quiz_grace_until_elapsed_ms: None,
+                ..snapshot
+            };
+        }
+        snapshot
+    }
+
+    /// Parent PIN unlock from the daily-limit lock (or fail lock): grants a
+    /// bounded today-only extension and starts a fresh block. The permanent
+    /// daily limit is never changed.
+    pub fn parent_pin_unlock(
+        snapshot: SessionSnapshot,
+        now_elapsed_ms: i64,
+        unlock_minutes: u32,
+    ) -> SessionSnapshot {
+        let minutes = unlock_minutes.clamp(1, 240);
+        SessionSnapshot {
+            phase: SessionPhase::InBlock,
+            block_duration_minutes: minutes,
+            minutes_accrued_in_block: 0.0,
+            block_started_elapsed_ms: Some(now_elapsed_ms),
+            last_tick_elapsed_ms: Some(now_elapsed_ms),
+            device_shielded_until_elapsed_ms: None,
+            quiz_grace_until_elapsed_ms: None,
+            ceiling_extension_minutes: (snapshot.ceiling_extension_minutes + minutes)
+                .min(app_config::CEILING_EXTENSION_MAX_MINUTES_PER_DAY),
+            ..snapshot
+        }
+    }
+
     pub fn can_launch(snapshot: &SessionSnapshot, rule: &AppRule, policy: &ChildPolicy) -> bool {
+        // Legacy callers (golden vectors) evaluate grace at the last tick.
+        Self::can_launch_at(
+            snapshot,
+            rule,
+            policy,
+            snapshot.last_tick_elapsed_ms.unwrap_or(0),
+        )
+    }
+
+    pub fn can_launch_at(
+        snapshot: &SessionSnapshot,
+        rule: &AppRule,
+        policy: &ChildPolicy,
+        now_elapsed_ms: i64,
+    ) -> bool {
         if rule.is_emergency || Self::is_emergency_package(&rule.package_or_bundle_id, policy) {
             return true;
         }
         if !rule.allowed || policy.paused {
             return false;
         }
-        if snapshot.phase == SessionPhase::Shielded {
+        if matches!(
+            snapshot.phase,
+            SessionPhase::Shielded | SessionPhase::CeilingReached
+        ) {
             return false;
         }
-        if let Some(ceiling) = effective_ceiling_opt(policy, snapshot) {
-            if snapshot.minutes_used_today >= ceiling {
-                let under_grace = snapshot.quiz_grace_until_elapsed_ms.is_some();
-                if !under_grace {
-                    return false;
-                }
-            }
+        if snapshot.ceiling_reached(policy, now_elapsed_ms) {
+            return false;
         }
         true
     }
@@ -737,5 +921,111 @@ mod bonus_engine_tests {
         old.max_local_day.clear();
         let t = SessionEngine::tick(old, 0, &ChildPolicy::default(), false);
         assert_eq!(t.max_local_day, local_today_key());
+    }
+}
+
+#[cfg(test)]
+mod ceiling_tests {
+    use super::*;
+
+    fn policy_ceiling(min: u32) -> ChildPolicy {
+        ChildPolicy {
+            quiz_mode: QuizMode::DeviceInterval,
+            quiz_interval_minutes: 30,
+            daily_ceiling_minutes: Some(min),
+            ..ChildPolicy::default()
+        }
+    }
+
+    fn at_ceiling(min: u32) -> SessionSnapshot {
+        let policy = policy_ceiling(min);
+        let started = SessionEngine::start_device_interval(
+            SessionSnapshot { day_key: local_today_key(), max_local_day: local_today_key(), ..Default::default() },
+            0,
+            &policy,
+        );
+        SessionEngine::tick_on_day(started, i64::from(min) * 60_000, &policy, true, &local_today_key())
+    }
+
+    #[test]
+    fn limit_reached_triggers_ceiling_lock_not_quiz() {
+        let st = at_ceiling(15);
+        assert_eq!(st.phase, SessionPhase::CeilingReached);
+        assert_eq!(st.minutes_used_today, 15);
+        assert!(!SessionEngine::can_launch_at(&st, &AppRule::new("a", "app.a"), &policy_ceiling(15), 900_000));
+        let emergency = AppRule { is_emergency: true, ..AppRule::new("p", "app.phone") };
+        assert!(SessionEngine::can_launch_at(&st, &emergency, &policy_ceiling(15), 900_000));
+    }
+
+    #[test]
+    fn quiz_pass_cannot_bypass_ceiling_unless_earn_more_allowed() {
+        let st = at_ceiling(15);
+        let locked = SessionEngine::on_quiz_passed(st.clone(), 900_000, None, &policy_ceiling(15), false);
+        assert_eq!(locked.phase, SessionPhase::CeilingReached);
+        let mut earn = policy_ceiling(15);
+        earn.allow_earn_beyond_daily_limit = true;
+        let freed = SessionEngine::on_quiz_passed(st, 900_000, None, &earn, false);
+        assert_eq!(freed.phase, SessionPhase::InBlock);
+        assert!(freed.ceiling_extension_minutes > 0);
+        assert_eq!(effective_ceiling_opt(&earn, &freed), Some(15 + freed.ceiling_extension_minutes));
+    }
+
+    #[test]
+    fn bonus_lifts_ceiling_lock_and_pin_unlock_is_today_only() {
+        let st = at_ceiling(15);
+        let mut policy = policy_ceiling(15);
+        policy.grant_bonus(15, &local_today_key()).unwrap();
+        let lifted = SessionEngine::lift_ceiling_if_covered(st.clone(), &policy, 900_000);
+        assert_eq!(lifted.phase, SessionPhase::Idle);
+        assert_eq!(policy.daily_ceiling_minutes, Some(15), "bonus never changes the permanent limit");
+
+        let unlocked = SessionEngine::parent_pin_unlock(st, 900_000, app_config::PARENT_PIN_UNLOCK_MINUTES);
+        assert_eq!(unlocked.phase, SessionPhase::InBlock);
+        assert_eq!(unlocked.ceiling_extension_minutes, 15);
+        // Midnight clears the extension and the lock.
+        let tomorrow = (chrono::Local::now().date_naive() + chrono::Duration::days(1)).to_string();
+        let next = SessionEngine::on_new_day(unlocked, &tomorrow);
+        assert_eq!(next.minutes_used_today, 0);
+        assert_eq!(next.ceiling_extension_minutes, 0);
+        assert_eq!(next.phase, SessionPhase::Idle);
+    }
+
+    #[test]
+    fn midnight_resets_and_clock_rollback_does_not() {
+        let mut st = at_ceiling(15);
+        st.phase = SessionPhase::CeilingReached;
+        let tomorrow = (chrono::Local::now().date_naive() + chrono::Duration::days(1)).to_string();
+        let reset = SessionEngine::on_new_day(st.clone(), &tomorrow);
+        assert_eq!(reset.minutes_used_today, 0);
+        assert_eq!(reset.phase, SessionPhase::Idle);
+        // Winding the clock back to yesterday must not hand back the day.
+        let yesterday = (chrono::Local::now().date_naive() - chrono::Duration::days(1)).to_string();
+        let rolled = SessionEngine::on_new_day(st.clone(), &yesterday);
+        assert_eq!(rolled.minutes_used_today, 15);
+        assert_eq!(rolled.phase, SessionPhase::CeilingReached);
+        // Nor does a stale grace timestamp count as grace.
+        let mut grace = st.clone();
+        grace.quiz_grace_until_elapsed_ms = Some(1);
+        assert!(grace.ceiling_reached(&policy_ceiling(15), 900_000));
+    }
+
+    #[test]
+    fn paused_time_does_not_accrue() {
+        let mut policy = policy_ceiling(60);
+        policy.paused = true;
+        let started = SessionEngine::start_device_interval(
+            SessionSnapshot { day_key: local_today_key(), max_local_day: local_today_key(), ..Default::default() },
+            0, &policy);
+        let after = SessionEngine::tick_on_day(started, 600_000, &policy, true, &local_today_key());
+        assert_eq!(after.minutes_used_today, 0);
+    }
+
+    #[test]
+    fn old_snapshot_without_extension_still_loads() {
+        let mut v = serde_json::to_value(SessionSnapshot::default()).unwrap();
+        v.as_object_mut().unwrap().remove("ceilingExtensionMinutes");
+        let snap: SessionSnapshot = serde_json::from_value(v).unwrap();
+        assert_eq!(snap.ceiling_extension_minutes, 0);
+        assert_eq!(SessionPhase::parse("ceiling_reached"), SessionPhase::CeilingReached);
     }
 }

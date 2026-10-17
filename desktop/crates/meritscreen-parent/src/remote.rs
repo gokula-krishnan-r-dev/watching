@@ -67,6 +67,7 @@ pub fn policy_to_value(p: &ChildPolicy) -> Value {
         "nurseryCheckEnabled": p.nursery_check_enabled,
         "nurseryVideoEnabled": p.nursery_video_enabled,
         "nurseryPlaylistId": p.nursery_playlist_id,
+        "allowEarnBeyondDailyLimit": p.allow_earn_beyond_daily_limit,
         // Today-only bonus. `bonusMinutesToday` is Android's field; `bonusDay` (child-local
         // YYYY-MM-DD) scopes it so it expires at midnight. The permanent limit is untouched.
         "bonusMinutesToday": if p.bonus_day.is_some() { p.bonus_minutes_today } else { 0 },

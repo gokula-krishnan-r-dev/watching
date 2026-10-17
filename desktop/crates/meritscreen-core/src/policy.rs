@@ -53,6 +53,10 @@ pub struct ChildPolicy {
     /// Nursery playlist id, `all` = whole curriculum (Android `nurseryPlaylistId`).
     #[serde(default = "default_playlist")]
     pub nursery_playlist_id: String,
+    /// Parent opt-in: passing a quiz at the daily ceiling earns a bounded
+    /// today-only extension beyond the limit. Default off = hard daily cap.
+    #[serde(default)]
+    pub allow_earn_beyond_daily_limit: bool,
 }
 
 fn default_playlist() -> String {
@@ -100,6 +104,7 @@ impl Default for ChildPolicy {
             nursery_check_enabled: false,
             nursery_video_enabled: true,
             nursery_playlist_id: "all".into(),
+            allow_earn_beyond_daily_limit: false,
         }
     }
 }

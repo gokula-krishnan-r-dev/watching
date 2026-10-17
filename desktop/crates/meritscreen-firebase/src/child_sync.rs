@@ -237,6 +237,9 @@ pub fn policy_from_value(value: &Value) -> ChildPolicy {
     if let Some(b) = bool_field(&fields, "showExplanations") {
         policy.show_explanations = b;
     }
+    if let Some(b) = bool_field(&fields, "allowEarnBeyondDailyLimit") {
+        policy.allow_earn_beyond_daily_limit = b;
+    }
     if let Some(b) = bool_field(&fields, "nurseryCheckEnabled") {
         policy.nursery_check_enabled = b;
     }
