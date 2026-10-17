@@ -163,6 +163,18 @@ pub fn policy_from_value(value: &Value) -> ChildPolicy {
     if let Some(b) = bool_field(&fields, "paused") {
         policy.paused = b;
     }
+    if let Some(b) = bool_field(&fields, "showExplanations") {
+        policy.show_explanations = b;
+    }
+    if let Some(b) = bool_field(&fields, "nurseryCheckEnabled") {
+        policy.nursery_check_enabled = b;
+    }
+    if let Some(b) = bool_field(&fields, "nurseryVideoEnabled") {
+        policy.nursery_video_enabled = b;
+    }
+    if let Some(v) = string_field(&fields, "nurseryPlaylistId") {
+        policy.nursery_playlist_id = v;
+    }
     // Today-only parent bonus (Android `bonusMinutesToday`; desktop adds `bonusDay`).
     // Without a matching `bonusDay` the bonus is never applied, so a stale Android value can't leak.
     if let Some(n) = int_field(&fields, "bonusMinutesToday") {

@@ -23,6 +23,20 @@ pub enum AgeBand {
 }
 
 impl AgeBand {
+    /// The band whose questions this child may receive. Android has only three bands;
+    /// desktop's finer 3–4 / 5–6 profiles both use the Android `AGE_3_TO_6` bank.
+    pub fn bank_band(self) -> Self {
+        match self {
+            Self::Age3To4 | Self::Age5To6 | Self::Age3To6 => Self::Age3To6,
+            other => other,
+        }
+    }
+
+    /// Ages 3–6 ("early learners"): teach-first nursery flow + read-aloud on Android.
+    pub fn is_early_learner(self) -> bool {
+        self.bank_band() == Self::Age3To6
+    }
+
     pub fn parse(raw: &str) -> Option<Self> {
         match raw.trim().to_ascii_uppercase().as_str() {
             "AGE_3_TO_4" | "AGE3TO4" => Some(Self::Age3To4),
@@ -30,6 +44,11 @@ impl AgeBand {
             "AGE_3_TO_6" | "AGE3TO6" => Some(Self::Age3To6),
             "AGE_7_TO_9" | "AGE7TO9" => Some(Self::Age7To9),
             "AGE_10_TO_12" | "AGE10TO12" => Some(Self::Age10To12),
+            "3_TO_4" | "3-4" => Some(Self::Age3To4),
+            "5_TO_6" | "5-6" => Some(Self::Age5To6),
+            "3_TO_6" => Some(Self::Age3To6),
+            "7_TO_9" => Some(Self::Age7To9),
+            "10_TO_12" => Some(Self::Age10To12),
             _ => None,
         }
     }

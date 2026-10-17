@@ -40,6 +40,23 @@ pub struct ChildPolicy {
     /// Child-local calendar day (`YYYY-MM-DD`) the bonus applies to (`bonusDay`). Missing/other day ⇒ no bonus.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bonus_day: Option<String>,
+    /// Show why-correct / why-wrong explanations (Android `showExplanations`, default true).
+    #[serde(default = "default_true")]
+    pub show_explanations: bool,
+    /// Early learners (3–6) get a knowledge check instead of teach-first when true
+    /// (Android `nurseryCheckEnabled`, default false = teach first).
+    #[serde(default)]
+    pub nursery_check_enabled: bool,
+    /// Play a curriculum video before teach cards for early learners (Android, default true).
+    #[serde(default = "default_true")]
+    pub nursery_video_enabled: bool,
+    /// Nursery playlist id, `all` = whole curriculum (Android `nurseryPlaylistId`).
+    #[serde(default = "default_playlist")]
+    pub nursery_playlist_id: String,
+}
+
+fn default_playlist() -> String {
+    "all".into()
 }
 
 fn default_quiz_interval() -> u32 {
@@ -79,6 +96,10 @@ impl Default for ChildPolicy {
             paused: false,
             bonus_minutes_today: 0,
             bonus_day: None,
+            show_explanations: true,
+            nursery_check_enabled: false,
+            nursery_video_enabled: true,
+            nursery_playlist_id: "all".into(),
         }
     }
 }

@@ -10,7 +10,9 @@ pub mod error;
 pub mod i18n;
 pub mod platform;
 pub mod policy;
+pub mod nursery;
 pub mod quiz;
+pub mod rewards;
 pub mod quiz_mode;
 pub mod role;
 pub mod session;
@@ -21,7 +23,9 @@ pub use appearance::{Appearance, DesignTokens, DARK_TOKENS, LIGHT_TOKENS};
 pub use error::AppError;
 pub use i18n::{t as i18n_t, t_args as i18n_t_args};
 pub use platform::DevicePlatform;
+pub use nursery::{NurseryCurriculum, NurseryPlaylist, NurseryTeachItem, NurseryVideo};
 pub use policy::{AppRule, ChildPolicy};
+pub use rewards::{AwardResult, ExplorerProgress, StickerDefinition, StickerStage, StickerUnlock};
 pub use quiz::{
     load_builtin_bank, AdaptiveQuizEngine, AgeBand, QuizAnswerFeedback, QuizChoice, QuizQuestion,
     QuizSessionResult, TopicSkill, BUILTIN_QUIZ_BANK_JSON,
