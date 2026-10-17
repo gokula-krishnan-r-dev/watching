@@ -160,6 +160,9 @@ pub struct ChildUiState {
     pub last_award: Option<LastAwardDto>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nursery: Option<NurseryDto>,
+    /// Parent policy allows retrying the quiz during the fail-lock cooldown.
+    #[serde(default)]
+    pub can_retry_during_cooldown: bool,
 }
 
 /// One sticker/XP award to celebrate (Android `Completed` step fields).
@@ -221,6 +224,7 @@ impl Default for ChildUiState {
             stickers: Vec::new(),
             last_award: None,
             nursery: None,
+            can_retry_during_cooldown: false,
         }
     }
 }

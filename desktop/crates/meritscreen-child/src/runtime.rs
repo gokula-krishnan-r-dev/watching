@@ -184,6 +184,8 @@ struct Inner {
     nursery: Option<NurseryDto>,
     nursery_recent_videos: Vec<String>,
     nursery_last_category: Option<String>,
+    pack_raw: Option<String>,
+    pack_merged: bool,
 }
 
 fn wall_now_ms() -> i64 {
@@ -303,6 +305,8 @@ impl ChildRuntime {
             nursery: None,
             nursery_recent_videos: Vec::new(),
             nursery_last_category: None,
+            pack_raw: secrets_dir.as_ref().and_then(|d| std::fs::read_to_string(d.join("quiz_pack.json")).ok()),
+            pack_merged: false,
         };
 
         // Restore persisted session across app restart / PC reboot
@@ -754,7 +758,33 @@ impl ChildRuntime {
             stickers: g.stickers.clone(),
             last_award: g.last_award.clone(),
             nursery: g.nursery.clone(),
+            can_retry_during_cooldown: g.policy.allow_retry_during_cooldown,
         }
+    }
+
+    /// Validate + install a generated quiz pack (Android layout, `source:"ai"` items win
+    /// picking preference). Returns how many questions were accepted.
+    pub fn load_pack_json(&self, raw: &str) -> usize {
+        let mut g = self.inner.lock();
+        install_pack(&mut g, raw)
+    }
+
+    /// Retry the quiz during the fail-lock cooldown when the parent policy allows it.
+    pub fn retry_quiz_during_cooldown(&self) -> Result<ChildUiState, AppError> {
+        let mut g = self.inner.lock();
+        self.require_ready_locked(&g)?;
+        if g.session.phase != SessionPhase::Shielded || !g.policy.allow_retry_during_cooldown {
+            return Err(AppError::validation("Retry during cooldown is not enabled by your parent."));
+        }
+        g.session = SessionEngine::end_fail_lock(g.session.clone());
+        g.session.phase = SessionPhase::QuizDue;
+        begin_quiz(&mut g);
+        if g.nursery.is_none() {
+            g.screen_override = Some(ChildScreen::Quiz);
+        }
+        self.save_persisted(&g);
+        drop(g);
+        Ok(self.ui_state())
     }
 
     /// Attempts not yet handed to the Guardian for Firestore upload.
@@ -1197,7 +1227,26 @@ fn resolve_screen(g: &Inner) -> ChildScreen {
     }
 }
 
+fn install_pack(g: &mut Inner, raw: &str) -> usize {
+    let avoid: std::collections::HashSet<String> = g.bank.iter().map(|q| q.id.clone()).collect();
+    let accepted = meritscreen_core::quiz::parse_and_validate_pack(raw, g.age_band.bank_band(), &avoid);
+    let n = accepted.len();
+    if n > 0 {
+        let keys: std::collections::HashSet<String> =
+            g.bank.iter().map(|q| AdaptiveQuizEngine::prompt_history_key(&q.prompt)).collect();
+        g.bank.extend(accepted.into_iter().filter(|q| !keys.contains(&AdaptiveQuizEngine::prompt_history_key(&q.prompt))));
+        g.pack_source = "ai".into();
+    }
+    n
+}
+
 fn begin_quiz(g: &mut Inner) {
+    if !g.pack_merged {
+        g.pack_merged = true;
+        if let Some(raw) = g.pack_raw.clone() {
+            install_pack(g, &raw);
+        }
+    }
     if g.bank.is_empty() {
         if let Ok(bank) = load_builtin_bank() {
             g.bank = bank;
@@ -1815,5 +1864,36 @@ mod quiz_reporting_tests {
         let st2 = rt2.force_quiz_due().unwrap();
         assert!(st2.quiz.is_some());
         assert!(st2.quiz.unwrap().interaction_type != "TAP_TEXT" || st2.early_learner);
+    }
+}
+
+#[cfg(test)]
+mod pack_and_retry_tests {
+    use super::*;
+
+    #[test]
+    fn pack_install_validates_and_retry_respects_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = ChildRuntime::with_secrets_dir(dir.path());
+        {
+            let mut g = rt.inner.lock();
+            g.paired = true;
+            g.checklist_complete = true;
+        }
+        let pack = r#"[{"id":"ai1","ageBand":"AGE_7_TO_9","topic":"geo","conceptId":"capitals","conceptTitle":"Capitals","difficulty":2,"prompt":"Capital of France?","choices":[{"id":"a","text":"Paris","correct":true},{"id":"b","text":"Rome","correct":false}],"whyCorrect":"Paris.","whyWrongByChoice":{},"conceptExplainer":"Capitals."},{"id":"bad","ageBand":"AGE_7_TO_9","topic":"x","conceptId":"x","conceptTitle":"x","difficulty":9,"prompt":"bad","choices":[],"whyCorrect":"x","whyWrongByChoice":{},"conceptExplainer":"x"}]"#;
+        assert_eq!(rt.load_pack_json(pack), 1);
+        let g = rt.inner.lock();
+        assert_eq!(g.pack_source, "ai");
+        assert!(g.bank.iter().any(|q| q.id == "ai1"));
+        drop(g);
+        // Retry blocked by default policy used in runtime (allow_retry default true in core Default? runtime policy default)
+        let mut g = rt.inner.lock();
+        g.policy.allow_retry_during_cooldown = false;
+        g.session.phase = SessionPhase::Shielded;
+        drop(g);
+        assert!(rt.retry_quiz_during_cooldown().is_err());
+        rt.inner.lock().policy.allow_retry_during_cooldown = true;
+        let st = rt.retry_quiz_during_cooldown().unwrap();
+        assert!(st.quiz.is_some() || st.nursery.is_some());
     }
 }
