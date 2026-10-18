@@ -134,7 +134,7 @@ fn build_sync_backends() -> Option<Arc<SyncBackends>> {
         return None;
     }
     if std::env::var("MERITSCREEN_SYNC_MOCK").is_ok()
-        || std::env::var("MERITSCREEN_FIREBASE_API_KEY").is_err()
+        || meritscreen_firebase::FirebaseConfig::from_env_or_build().is_none()
     {
         // Default lab: mock remote so schedulers exercise without cloud credentials.
         let mock = meritscreen_firebase::MockChildRemoteClient::default();
@@ -143,12 +143,8 @@ fn build_sync_backends() -> Option<Arc<SyncBackends>> {
             auth: None,
         }));
     }
-    let api_key = std::env::var("MERITSCREEN_FIREBASE_API_KEY").ok()?;
-    let project_id = std::env::var("MERITSCREEN_FIREBASE_PROJECT_ID").ok()?;
-    let config = meritscreen_firebase::FirebaseConfig {
-        api_key,
-        project_id: project_id.clone(),
-    };
+    let config = meritscreen_firebase::FirebaseConfig::from_env_or_build()?;
+    let project_id = config.project_id.clone();
     let firestore = meritscreen_firebase::RestFirestoreClient::new(config.clone());
     let auth = meritscreen_firebase::RestAuthClient::new(config);
     let remote = meritscreen_firebase::OwnedRestChildRemoteClient::new(firestore, project_id);

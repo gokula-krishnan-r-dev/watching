@@ -251,21 +251,17 @@ impl ParentSession {
             s.restore_persisted_session();
             return s;
         }
-        let api_key = std::env::var("MERITSCREEN_FIREBASE_API_KEY")
-            .unwrap_or_else(|_| "AIzaSyDNXTbTLRBCkCzxINt-Q-iahnFGkKfBCNM".into());
-        if api_key.trim().is_empty() {
+        // Production: key comes from runtime env or the build-time env
+        // (MERITSCREEN_FIREBASE_API_KEY, set from CI secrets / local env
+        // file). No key is hard-coded; without one we stay in demo mode.
+        let Some(config) = FirebaseConfig::from_env_or_build() else {
             let mut s = Self::demo();
             s.session_path = session_path;
             s.secret_store = Some(SecretStore::platform());
             s.restore_persisted_session();
             return s;
-        }
-        let project_id = std::env::var("MERITSCREEN_FIREBASE_PROJECT_ID")
-            .unwrap_or_else(|_| "managing-screen-time".into());
-        let config = FirebaseConfig {
-            api_key,
-            project_id: project_id.clone(),
         };
+        let project_id = config.project_id.clone();
         info!(%project_id, "parent session: live Firebase REST backends");
         let callables: Arc<dyn CallableClient> = Arc::new(RestCallableClient::new(config.clone()));
         let remote = ParentRemote::new(

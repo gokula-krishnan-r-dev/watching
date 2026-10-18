@@ -27,6 +27,36 @@ pub struct FirebaseConfig {
 }
 
 impl FirebaseConfig {
+    /// Production config: runtime env wins, then the value baked in at
+    /// build time via `MERITSCREEN_FIREBASE_*` (CI secrets / local env
+    /// file), then the public project id default. Returns `None` when
+    /// no API key is available so callers can fall back to demo/mock.
+    pub fn from_env_or_build() -> Option<Self> {
+        let api_key = std::env::var("MERITSCREEN_FIREBASE_API_KEY")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| {
+                option_env!("MERITSCREEN_FIREBASE_API_KEY")
+                    .map(str::to_string)
+                    .filter(|v| !v.trim().is_empty())
+            })?;
+        let project_id = std::env::var("MERITSCREEN_FIREBASE_PROJECT_ID")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| {
+                option_env!("MERITSCREEN_FIREBASE_PROJECT_ID")
+                    .map(str::to_string)
+                    .filter(|v| !v.trim().is_empty())
+            })
+            .unwrap_or_else(|| "managing-screen-time".into());
+        Some(Self {
+            api_key,
+            project_id,
+        })
+    }
+}
+
+impl FirebaseConfig {
     pub fn identity_url(&self) -> String {
         format!(
             "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={}",

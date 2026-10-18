@@ -1,0 +1,66 @@
+name: Desktop Release (Watching installers)
+on:
+  workflow_dispatch:
+  push:
+    tags: ["desktop-v*"]
+defaults:
+  run:
+    working-directory: desktop
+jobs:
+  macos-dmg:
+    runs-on: macos-latest
+    env:
+      MERITSCREEN_FIREBASE_API_KEY: ${{ secrets.MERITSCREEN_FIREBASE_API_KEY }}
+      MERITSCREEN_FIREBASE_PROJECT_ID: managing-screen-time
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm, cache-dependency-path: desktop/apps/meritscreen-ui/ui/package-lock.json }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: desktop -> target }
+      - name: Build UI deps
+        working-directory: desktop/apps/meritscreen-ui/ui
+        run: npm ci
+      - name: Build Guardian + Agent (release, Firebase baked at build time)
+        run: cargo build --release -p meritscreen-guardian -p meritscreen-agent
+      - name: Stage sidecars
+        run: |
+          TRIPLE=$(rustc -vV | sed -n 's/host: //p')
+          mkdir -p apps/meritscreen-ui/binaries
+          cp target/release/meritscreen-guardian "apps/meritscreen-ui/binaries/meritscreen-guardian-$TRIPLE"
+          cp target/release/meritscreen-agent "apps/meritscreen-ui/binaries/meritscreen-agent-$TRIPLE"
+      - name: Build Watching.app + DMG
+        working-directory: desktop/apps/meritscreen-ui
+        run: ./ui/node_modules/.bin/tauri build --config tauri.release.conf.json --bundles dmg,app
+      - uses: actions/upload-artifact@v4
+        with: { name: Watching-macOS, path: desktop/target/release/bundle/dmg/*.dmg }
+  windows-nsis:
+    runs-on: windows-latest
+    env:
+      MERITSCREEN_FIREBASE_API_KEY: ${{ secrets.MERITSCREEN_FIREBASE_API_KEY }}
+      MERITSCREEN_FIREBASE_PROJECT_ID: managing-screen-time
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm, cache-dependency-path: desktop/apps/meritscreen-ui/ui/package-lock.json }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: desktop -> target }
+      - name: Build UI deps
+        working-directory: desktop/apps/meritscreen-ui/ui
+        run: npm ci
+      - name: Build Guardian + Agent (release)
+        run: cargo build --release -p meritscreen-guardian -p meritscreen-agent
+      - name: Stage sidecars
+        shell: pwsh
+        run: |
+          $triple = (rustc -vV | Select-String 'host:').ToString().Split(':')[1].Trim()
+          New-Item -ItemType Directory -Force apps/meritscreen-ui/binaries | Out-Null
+          Copy-Item target/release/meritscreen-guardian.exe "apps/meritscreen-ui/binaries/meritscreen-guardian-$triple.exe"
+          Copy-Item target/release/meritscreen-agent.exe "apps/meritscreen-ui/binaries/meritscreen-agent-$triple.exe"
+      - name: Build Watching NSIS setup (.exe)
+        working-directory: desktop/apps/meritscreen-ui
+        run: ./ui/node_modules/.bin/tauri build --config tauri.release.conf.json --bundles nsis
+      - uses: actions/upload-artifact@v4
+        with: { name: Watching-Windows, path: desktop/target/release/bundle/nsis/*.exe }

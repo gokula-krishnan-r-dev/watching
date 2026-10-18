@@ -66,3 +66,7 @@ desktop/apps/meritscreen-ui/ui/node_modules/
 desktop/apps/meritscreen-ui/ui/dist/
 desktop/**/Cargo.lock
 !desktop/Cargo.lock
+
+# Desktop release sidecars / build output (never commit binaries)
+desktop/apps/meritscreen-ui/binaries/
+desktop/target/
