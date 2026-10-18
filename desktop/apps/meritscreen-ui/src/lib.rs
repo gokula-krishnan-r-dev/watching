@@ -36,6 +36,47 @@ struct HostFlags {
 
 static HOST_FLAGS: OnceLock<HostFlags> = OnceLock::new();
 
+// ── Tray shield icon ────────────────────────────────────────────────────────
+// macOS: alpha-only template PNGs (black + transparency). macOS tints them
+// for light/dark menu bars; the previous coloured app icon on an opaque
+// cream background rendered as a solid blank block when used as a template.
+// Windows/other: coloured shield PNGs on transparency. Paused child devices
+// get a hollow shield + pause bars; everything else gets shield + check.
+#[cfg(target_os = "macos")]
+const TRAY_SHIELD_BYTES: &[u8] = include_bytes!("../icons/tray/shield-template@2x.png");
+#[cfg(target_os = "macos")]
+const TRAY_SHIELD_PAUSED_BYTES: &[u8] = include_bytes!("../icons/tray/shield-template-paused@2x.png");
+#[cfg(not(target_os = "macos"))]
+const TRAY_SHIELD_BYTES: &[u8] = include_bytes!("../icons/tray/shield-color@2x.png");
+#[cfg(not(target_os = "macos"))]
+const TRAY_SHIELD_PAUSED_BYTES: &[u8] = include_bytes!("../icons/tray/shield-color-paused@2x.png");
+
+static TRAY_ICON_PAUSED: Mutex<Option<bool>> = Mutex::new(None);
+
+/// Swap the tray shield only when the protected/paused state actually changes.
+fn update_tray_shield_icon(app: &tauri::AppHandle, paused: bool) {
+    {
+        let mut guard = match TRAY_ICON_PAUSED.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        if *guard == Some(paused) {
+            return;
+        }
+        *guard = Some(paused);
+    }
+    if let Some(tray) = app.tray_by_id("main") {
+        let bytes = if paused { TRAY_SHIELD_PAUSED_BYTES } else { TRAY_SHIELD_BYTES };
+        if let Ok(image) = tauri::image::Image::from_bytes(bytes) {
+            // On macOS this keeps the template flag in the same call (avoids flicker);
+            // on Windows/Linux it falls back to a plain coloured icon swap.
+            let _ = tray.set_icon_with_as_template(Some(image), cfg!(target_os = "macos"));
+        }
+    }
+}
+
+
+
 fn parse_host_flags() -> HostFlags {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut overlay = None;
@@ -194,6 +235,7 @@ fn set_appearance(appearance: String, state: State<'_, AppState>) -> Result<Appe
 fn set_role(role: String, app: tauri::AppHandle, state: State<'_, AppState>) -> DeviceRole {
     let role = DeviceRole::parse(&role);
     *state.role.lock().expect("role lock") = role;
+    update_tray_shield_icon(&app, role == DeviceRole::Child && state.child.ui_state().paused);
     if let Some(tray) = app.tray_by_id("main") {
         #[cfg(target_os = "macos")]
         {
@@ -1385,19 +1427,30 @@ pub fn run() {
                     }));
                 }
 
+                update_tray_shield_icon(app.handle(), initial_role == DeviceRole::Child && app.state::<AppState>().child.ui_state().paused);
                 let app_handle = app.handle().clone();
                 tray.on_tray_icon_event(move |_tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click {
-                        button: tauri::tray::MouseButton::Left,
-                        button_state: tauri::tray::MouseButtonState::Up,
-                        position,
-                        ..
-                    } = event
-                    {
-                        if let Ok(mut lock) = LAST_TRAY_CLICK_POS.lock() {
-                            *lock = Some((position.x, position.y));
+                    match event {
+                        // No tray menu is attached, so both buttons toggle the
+                        // popover (right-click must not be a dead click).
+                        tauri::tray::TrayIconEvent::Click {
+                            button: tauri::tray::MouseButton::Left | tauri::tray::MouseButton::Right,
+                            button_state: tauri::tray::MouseButtonState::Up,
+                            position,
+                            ..
+                        } => {
+                            if let Ok(mut lock) = LAST_TRAY_CLICK_POS.lock() {
+                                *lock = Some((position.x, position.y));
+                            }
+                            let _ = toggle_tray_popover(app_handle.clone());
                         }
-                        let _ = toggle_tray_popover(app_handle.clone());
+                        tauri::tray::TrayIconEvent::DoubleClick {
+                            button: tauri::tray::MouseButton::Left,
+                            ..
+                        } => {
+                            let _ = show_main_window(app_handle.clone());
+                        }
+                        _ => {}
                     }
                 });
             }
@@ -1533,6 +1586,7 @@ pub fn run() {
                             );
                         }
 
+                        update_tray_shield_icon(&app_handle_bg, ui_state.paused || matches!(ui_state.screen, meritscreen_child::ChildScreen::Paused));
                         // Update tray tooltip / title with real-time minutes and seconds
                         if let Some(tray) = app_handle_bg.tray_by_id("main") {
                             let app_label = ui_state.active_app_name.as_deref().unwrap_or("Desktop");
@@ -1662,6 +1716,36 @@ mod architecture_lint {
             !manifest.contains("meritscreen-db"),
             "meritscreen-child must not depend on meritscreen-db on the UI hot path"
         );
+    }
+
+    fn png_size(bytes: &[u8]) -> (u32, u32) {
+        assert_eq!(&bytes[0..8], b"\x89PNG\r\n\x1a\n", "tray icon must be a PNG");
+        (
+            u32::from_be_bytes(bytes[16..20].try_into().unwrap()),
+            u32::from_be_bytes(bytes[20..24].try_into().unwrap()),
+        )
+    }
+
+    /// Regression: the old tray icon was the coloured app logo on an opaque
+    /// cream background; as a macOS template it rendered as a blank block.
+    /// Template assets must be retina shield glyphs, and platform configs
+    /// must point macOS at the template and Windows at the coloured shield.
+    #[test]
+    fn tray_shield_icons_and_platform_configs() {
+        assert_eq!(png_size(include_bytes!("../icons/tray/shield-template.png")), (18, 18));
+        assert_eq!(png_size(include_bytes!("../icons/tray/shield-template@2x.png")), (36, 36));
+        assert_eq!(png_size(include_bytes!("../icons/tray/shield-template-paused@2x.png")), (36, 36));
+        assert_eq!(png_size(include_bytes!("../icons/tray/shield-color.png")), (32, 32));
+        assert_eq!(png_size(include_bytes!("../icons/tray/shield-color@2x.png")), (64, 64));
+
+        let mac = include_str!("../tauri.macos.conf.json");
+        assert!(mac.contains("shield-template@2x.png"), "macOS tray must use the shield template");
+        assert!(mac.contains("\"iconAsTemplate\": true"), "macOS shield must be a template image");
+        assert!(mac.contains("\"tooltip\": \"Watching\""), "macOS tray tooltip");
+
+        let win = include_str!("../tauri.windows.conf.json");
+        assert!(win.contains("shield-color.png"), "Windows tray must use the coloured shield");
+        assert!(win.contains("\"iconAsTemplate\": false"), "Windows shield must not be a template");
     }
 
     /// Guard against regressing to `fn cmd(args: FooArgs)` — Tauri then requires

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "trayIcon": {
+      "id": "main",
+      "iconPath": "icons/tray/shield-color.png",
+      "iconAsTemplate": false,
+      "menuOnLeftClick": false,
+      "title": "Watching",
+      "tooltip": "Watching"
+    }
+  }
+}
