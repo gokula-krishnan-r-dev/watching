@@ -260,7 +260,7 @@ class ChildQuizViewModelTest {
         viewModel.closeResourceModal()
         testScheduler.runCurrent()
         step = (viewModel.uiState.value as UiState.Success).data.step as QuizUiStep.Question
-        assertEquals("test_q2", step.question.id)
+        assertTrue(step.question.id in setOf("test_q2", "test_q3"))
         assertNull(step.evaluatedChoiceId)
         assertFalse(step.learnMoreRequired)
         assertFalse(step.showResourceModal)

@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
 import com.meritscreen.core.common.config.AppConfig
 import com.meritscreen.core.common.domain.AgeBand
+import com.meritscreen.core.common.domain.AppRule
 import com.meritscreen.core.common.domain.AvatarPreset
 import com.meritscreen.core.common.domain.ChildPolicy
 import com.meritscreen.core.common.domain.CustomPromptSanitizer
@@ -524,6 +525,9 @@ class PolicyEditorViewModel @Inject constructor(
     private val _policy = MutableStateFlow<UiState<ChildPolicy>>(UiState.Loading)
     val policy: StateFlow<UiState<ChildPolicy>> = _policy.asStateFlow()
 
+    private val _emergencyAppRules = MutableStateFlow<List<AppRule>>(emptyList())
+    val emergencyAppRules: StateFlow<List<AppRule>> = _emergencyAppRules.asStateFlow()
+
     private val _ageBand = MutableStateFlow(AgeBand.AGE_7_TO_9)
     /** Child age band for age-appropriate Quick add chips on adaptive settings. */
     val ageBand: StateFlow<AgeBand> = _ageBand.asStateFlow()
@@ -549,6 +553,8 @@ class PolicyEditorViewModel @Inject constructor(
             if (profile != null) {
                 _ageBand.value = profile.ageBand
             }
+            val rules = runCatching { parentControlStore.listAppRules(familyId, childId) }.getOrDefault(emptyList())
+            _emergencyAppRules.value = rules.filter { it.isEmergency }
             _policy.value = UiState.Success(parentControlStore.getPolicy(familyId, childId))
         } catch (error: Throwable) {
             _policy.value = UiState.Error(AppErrorMapper.from(error))

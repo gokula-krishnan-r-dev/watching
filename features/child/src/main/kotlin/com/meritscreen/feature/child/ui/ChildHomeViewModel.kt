@@ -172,6 +172,11 @@ class ChildHomeViewModel @Inject constructor(
             return@combine UiState.Error(AppError.Auth("This device is not paired."))
         }
         val (policy, rules, profile) = gate.bundle
+        val ceiling = (policy.dailyCeilingMinutes ?: com.meritscreen.core.common.config.AppConfig.DEFAULT_DAILY_CEILING_MINUTES).coerceAtLeast(30)
+        val usedMinutes = gate.session.minutesUsedToday.coerceAtLeast(0)
+        val dailyRemaining = gate.session.dailyRemainingMinutes(policy)
+        val isDailyLimitReached = dailyRemaining <= 0
+
         val tiles = rules
             .filter { it.allowed || it.isEmergency }
             .map { rule ->
@@ -182,7 +187,9 @@ class ChildHomeViewModel @Inject constructor(
                 val label = rule.displayName.ifBlank {
                     rule.packageOrBundleId.substringAfterLast('.')
                 }
-                val launchable = installed && SessionEngine.canLaunch(gate.session, rule, policy)
+                val isEmergency = rule.isEmergency ||
+                    SessionEngine.isEmergencyPackage(rule.packageOrBundleId, policy)
+                val launchable = installed && (if (isDailyLimitReached) isEmergency else SessionEngine.canLaunch(gate.session, rule, policy))
                 buildTile(
                     rule = rule,
                     label = label,
@@ -191,12 +198,11 @@ class ChildHomeViewModel @Inject constructor(
                     session = gate.session,
                     nowElapsedMs = gate.now,
                     defaultBlockMinutes = policy.defaultBlockMinutes,
+                    isDailyLimitReached = isDailyLimitReached,
+                    isEmergency = isEmergency,
                 )
             }
 
-        val ceiling = (policy.dailyCeilingMinutes ?: com.meritscreen.core.common.config.AppConfig.DEFAULT_DAILY_CEILING_MINUTES).coerceAtLeast(30)
-        val usedMinutes = gate.session.minutesUsedToday.coerceAtLeast(0)
-        val dailyRemaining = gate.session.dailyRemainingMinutes(policy)
         val balance = if (usedMinutes <= ceiling * 0.7) "Good balance" else "Pacing check"
 
         UiState.Success(
@@ -238,6 +244,8 @@ class ChildHomeViewModel @Inject constructor(
         session: SessionSnapshot,
         nowElapsedMs: Long,
         defaultBlockMinutes: Int,
+        isDailyLimitReached: Boolean = false,
+        isEmergency: Boolean = false,
     ): HomeAppTile {
         val pkg = rule.packageOrBundleId.lowercase()
         val isActiveBlock = session.phase == SessionPhase.InBlock &&
@@ -257,8 +265,11 @@ class ChildHomeViewModel @Inject constructor(
         val timeBadge = displayRemaining?.let { mins -> "${mins}m left" }
 
         val (subtitle, badgeLabel, badgeType, category) = when {
-            rule.isEmergency -> {
+            isEmergency || rule.isEmergency -> {
                 Quad("Emergency", "Always Free", TileBadgeType.FREE, "Emergency")
+            }
+            isDailyLimitReached -> {
+                Quad("Daily Limit", "Locked", TileBadgeType.TIME_ALERT, "Restricted")
             }
             pkg.contains("youtube") || pkg.contains("video") -> {
                 timeBadge.toTimedOrNeutral("Videos", "Media")
@@ -426,6 +437,10 @@ class ChildHomeViewModel @Inject constructor(
         _launchError.value = null
     }
 
+    fun setLaunchError(message: String) {
+        _launchError.value = message
+    }
+
     suspend fun onAppTapped(tile: HomeAppTile): AppTapResult {
         _launchError.value = null
         if (!tile.installed) {
@@ -440,6 +455,12 @@ class ChildHomeViewModel @Inject constructor(
         }
         if (policy.paused && !isEmergency) {
             return AppTapResult.Shielded
+        }
+        val ceiling = policy.dailyCeilingMinutes
+        val isDailyLimitReached = ceiling != null && sessionController.snapshot.value.minutesUsedToday >= ceiling
+        if (isDailyLimitReached && !isEmergency) {
+            _launchError.value = "Daily time limit reached (${ceiling}m). Only emergency apps like Phone or WhatsApp can be opened right now."
+            return AppTapResult.Blocked
         }
         val session = sessionController.openApp(tile.rule)
         return when (session.phase) {

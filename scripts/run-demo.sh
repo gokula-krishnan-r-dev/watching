@@ -343,17 +343,17 @@ install_app() {
   # services.gradle.org. Dependency/plugin downloads still use the network.
   seed_gradle_wrapper_if_needed
 
-  local gradle_q=()
+  local -a gradle_q=()
   [[ "$QUIET" -eq 1 ]] && gradle_q=(--quiet)
 
   log "Running Gradle (distribution cached; dependencies may download)"
-  if ! ./gradlew "${gradle_q[@]}" "${gradle_args[@]}"; then
+  if ! ./gradlew ${gradle_q+"${gradle_q[@]}"} "${gradle_args[@]}"; then
     warn "Gradle installDebug encountered an issue. Attempting fallback assembleDebug and direct adb install..."
-    local assemble_args=(:app:assembleDebug)
+    local -a assemble_args=(:app:assembleDebug)
     if [[ "$MODE" == "emulators" ]]; then
       assemble_args+=(-PuseFirebaseEmulators=true)
     fi
-    if ./gradlew "${gradle_q[@]}" "${assemble_args[@]}" && [[ -f "$APK_PATH" ]]; then
+    if ./gradlew ${gradle_q+"${gradle_q[@]}"} "${assemble_args[@]}" && [[ -f "$APK_PATH" ]]; then
       log "Installing built APK directly via adb: $APK_PATH"
       if [[ "$QUIET" -eq 1 ]]; then
         adb install -r -t "$APK_PATH" >/dev/null

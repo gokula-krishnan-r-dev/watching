@@ -37,16 +37,22 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Phase 6: MeritScreen can be requested as the default Home app via RoleManager
-                 (API 29+) or the system Home chooser (API 26-28) — see
-                 :features:launcher HomeRoleManager. This is a standard, user-granted Home-app
-                 choice, not a device-owner/enforced lock. -->
+        </activity>
+
+        <!-- Dynamic Home-app alias: Enabled during Child Safe Mode so MeritScreen can hold
+             the Android Home role. Disabled on Unpair/Uninstall so the OS seamlessly
+             restores the device's native stock launcher. -->
+        <activity-alias
+            android:name="com.meritscreen.app.HomeLauncherAlias"
+            android:targetActivity=".MainActivity"
+            android:enabled="true"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
-        </activity>
+        </activity-alias>
 
         <!-- 24/7 Foreground Service for Time-Limit Monitoring and Quota Enforcement -->
         <service

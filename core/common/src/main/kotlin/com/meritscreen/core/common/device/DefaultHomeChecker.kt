@@ -1,6 +1,7 @@
 package com.meritscreen.core.common.device
 
 import android.app.role.RoleManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -21,7 +22,18 @@ import android.os.Build
  */
 object DefaultHomeChecker {
 
+    const val HOME_ALIAS_CLASS_NAME = "com.meritscreen.app.HomeLauncherAlias"
+
+    fun isHomeLauncherComponentEnabled(context: Context): Boolean {
+        return runCatching {
+            val comp = ComponentName(context.packageName, HOME_ALIAS_CLASS_NAME)
+            val state = context.packageManager.getComponentEnabledSetting(comp)
+            state != PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        }.getOrDefault(true)
+    }
+
     fun isDefaultHome(context: Context): Boolean {
+        if (!isHomeLauncherComponentEnabled(context)) return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val roleManager = context.getSystemService(RoleManager::class.java)
             if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {

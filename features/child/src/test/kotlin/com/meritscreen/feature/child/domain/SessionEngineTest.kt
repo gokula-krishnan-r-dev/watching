@@ -274,4 +274,18 @@ class SessionEngineTest {
         assertEquals(0, state.minutesUsedToday)
         assertEquals(120, state.dailyRemainingMinutes(policy))
     }
+
+    @Test
+    fun dailyCeilingReached_blocksNormalApps_butAllowsEmergencyApps() {
+        val policy = ChildPolicy(dailyCeilingMinutes = 60)
+        val limitReachedSnapshot = SessionSnapshot(minutesUsedToday = 60)
+
+        val gameApp = AppRule(appId = "game", packageOrBundleId = "com.roblox", isEmergency = false)
+        val whatsappApp = AppRule(appId = "whatsapp", packageOrBundleId = "com.whatsapp", isEmergency = true)
+        val phoneApp = AppRule(appId = "phone", packageOrBundleId = "com.google.android.dialer", isEmergency = false)
+
+        assertFalse(SessionEngine.canLaunch(limitReachedSnapshot, gameApp, policy))
+        assertTrue(SessionEngine.canLaunch(limitReachedSnapshot, whatsappApp, policy))
+        assertTrue(SessionEngine.canLaunch(limitReachedSnapshot, phoneApp, policy))
+    }
 }

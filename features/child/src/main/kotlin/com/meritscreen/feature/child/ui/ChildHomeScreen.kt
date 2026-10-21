@@ -25,6 +25,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -58,6 +59,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
@@ -121,6 +123,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.meritscreen.core.common.device.DefaultHomeChecker
 import com.meritscreen.core.common.domain.SessionPhase
 import com.meritscreen.core.common.ui.UiState
 import com.meritscreen.core.ui.components.ErrorState
@@ -158,11 +161,24 @@ fun ChildHomeScreen(
         mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
     }
 
+    var usageAccessGranted by remember { mutableStateOf(ForegroundAppDetector.hasUsageStatsPermission(context)) }
+    var overlayGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    var defaultHomeGranted by remember { mutableStateOf(DefaultHomeChecker.isDefaultHome(context)) }
+
+    fun refreshPermissions() {
+        usageAccessGranted = ForegroundAppDetector.hasUsageStatsPermission(context)
+        overlayGranted = Settings.canDrawOverlays(context)
+        defaultHomeGranted = DefaultHomeChecker.isDefaultHome(context)
+    }
+
+    val hasAllPermissions = usageAccessGranted && overlayGranted && defaultHomeGranted
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
                     homeIsResumed = true
+                    refreshPermissions()
                     viewModel.onResumed()
                 }
                 Lifecycle.Event.ON_PAUSE -> {
@@ -178,6 +194,16 @@ fun ChildHomeScreen(
 
     LaunchedEffect(forceSignedOut) {
         if (forceSignedOut) onResetRole()
+    }
+
+    if (!hasAllPermissions) {
+        ChildPermissionsOnboardingScreen(
+            onAllPermissionsGranted = {
+                refreshPermissions()
+            },
+            onOpenPin = { onOpenPin(false) },
+        )
+        return
     }
 
     when (val current = state) {
@@ -285,22 +311,9 @@ fun ChildHomeScreen(
                         scope.launch { handleAppTap(tile) }
                     },
                 )
-            } else if (data.dailyRemainingMinutes != null && data.dailyRemainingMinutes <= 0) {
-                DailyLimitBlockerPane(
-                    data = data,
-                    isRefreshing = isRefreshing,
-                    onRefreshRules = viewModel::refreshRules,
-                    onOpenPhone = { launchNativePhone(context) },
-                    onOpenCamera = { launchNativeCamera(context) },
-                    onCallMom = { launchNativePhone(context) },
-                    onCallDad = { launchNativePhone(context) },
-                    onEmergency = { launchDialerWithNumber(context, "911") },
-                    onOpenQuiz = {
-                        if (!Settings.canDrawOverlays(context)) onOpenQuiz()
-                    },
-                    onOpenPin = { onOpenPin(false) },
-                )
             } else {
+                // When daily screen time limit is reached, remain on the launcher home page!
+                // Non-emergency apps are restricted, emergency apps are free, and a top banner indicates Rest Mode.
                 ChildHomeContent(
                     data = data,
                     searchQuery = searchQuery,
@@ -713,11 +726,18 @@ private fun HomeChromeSections(
         onParentLock = onOpenPin,
     )
 
-
-    if (!data.isDefaultHome) {
-        HomeRoleBanner(onSetup = onOpenLauncherSetup)
+    val isDailyLimitReached = data.dailyRemainingMinutes != null && data.dailyRemainingMinutes <= 0
+    if (isDailyLimitReached) {
+        DailyLimitReachedTopBanner(
+            dailyCeilingMinutes = data.dailyCeilingMinutes,
+            usedTodayMinutes = data.usedTodayMinutes,
+            emergencyApps = data.apps.filter {
+                it.rule.isEmergency || data.policy.emergencyApps.any { pkg ->
+                    pkg.equals(it.rule.packageOrBundleId, ignoreCase = true)
+                }
+            },
+        )
     }
-    ProtectionPermissionBanner()
 
     ScreenTimeAllowanceCard(
         dailyRemainingMinutes = data.dailyRemainingMinutes
@@ -1312,15 +1332,18 @@ private fun LauncherAppSquircleTile(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale = if (isPressed) 0.90f else 1.0f
+    val isRestricted = !tile.launchable && !tile.rule.isEmergency
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .scale(scale)
+            .graphicsLayer {
+                if (isRestricted) alpha = 0.42f
+            }
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                enabled = tile.launchable || tile.rule.isEmergency,
                 onClick = onClick,
             ),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -2099,95 +2122,102 @@ private fun EmergencyCallModal(
 // Sub-components: Home Role Setup Banner
 // -----------------------------------------------------------------------------
 
-@Composable
-private fun HomeRoleBanner(onSetup: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MeritColors.SurfaceContainer),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Default.Home,
-                contentDescription = null,
-                tint = MeritColors.Primary,
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Set Watching as Home",
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                )
-                Text(
-                    text = "So the Home button always comes back here.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MeritColors.OnSurfaceVariant,
-                )
-            }
-            MeritSecondaryButton(text = "Set up", onClick = onSetup)
-        }
-    }
-}
+
+
+// -----------------------------------------------------------------------------
+// Sub-components: Daily Limit Reached Top Banner (Launcher Home Screen Rest Mode)
+// -----------------------------------------------------------------------------
 
 @Composable
-private fun ProtectionPermissionBanner() {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var usageAccessGranted by remember { mutableStateOf(ForegroundAppDetector.hasUsageStatsPermission(context)) }
-    var overlayGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
-    fun refresh() {
-        usageAccessGranted = ForegroundAppDetector.hasUsageStatsPermission(context)
-        overlayGranted = Settings.canDrawOverlays(context)
-    }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) refresh()
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    if (usageAccessGranted && overlayGranted) return
-
-    Card(
+private fun DailyLimitReachedTopBanner(
+    dailyCeilingMinutes: Int,
+    usedTodayMinutes: Int,
+    emergencyApps: List<HomeAppTile> = emptyList(),
+) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MeritColors.TertiaryContainer,
+        shadowElevation = 2.dp,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MeritColors.SurfaceContainer),
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("Finish protection setup", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
-            Text(
-                "Usage Access detects app time. Display over other apps lets the quiz appear when time is up.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MeritColors.OnSurfaceVariant,
-            )
-            if (!usageAccessGranted) {
-                MeritSecondaryButton(
-                    text = "Allow Usage Access",
-                    onClick = {
-                        context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
-                            if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        })
-                    },
-                )
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(MeritColors.Tertiary),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Bedtime,
+                        contentDescription = null,
+                        tint = MeritColors.OnTertiary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Daily Limit Reached • Rest Mode",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MeritColors.OnTertiaryContainer,
+                    )
+                    Text(
+                        text = "Great job today! You've used your daily allowance ($dailyCeilingMinutes min). Only emergency apps remain unlocked.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MeritColors.OnTertiaryContainer.copy(alpha = 0.85f),
+                    )
+                }
             }
-            if (!overlayGranted) {
-                MeritSecondaryButton(
-                    text = "Allow quiz popup",
-                    onClick = {
-                        context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
-                            data = Uri.parse("package:${context.packageName}")
-                            if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        })
-                    },
-                )
+            if (emergencyApps.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(9999.dp),
+                        color = MeritColors.Tertiary,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Call,
+                                contentDescription = null,
+                                tint = MeritColors.OnTertiary,
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Text(
+                                text = "Emergency Free",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MeritColors.OnTertiary,
+                            )
+                        }
+                    }
+                    emergencyApps.forEach { tile ->
+                        Surface(
+                            shape = RoundedCornerShape(9999.dp),
+                            color = MeritColors.TertiaryContainer,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MeritColors.Tertiary),
+                        ) {
+                            Text(
+                                text = "✓ ${tile.label}",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MeritColors.OnTertiaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                }
             }
         }
     }

@@ -105,6 +105,7 @@ data class AllowlistUi(
     val inventoryReady: Boolean = false,
     val packageInput: String = "",
     val nameInput: String = "",
+    val isEmergencyInput: Boolean = false,
     val formError: String? = null,
     val isRefreshing: Boolean = false,
 ) {
@@ -269,6 +270,7 @@ class AllowlistViewModel @Inject constructor(
 
     fun onPackageChanged(value: String) = updateForm { it.copy(packageInput = value, formError = null) }
     fun onNameChanged(value: String) = updateForm { it.copy(nameInput = value) }
+    fun onEmergencyInputChanged(value: Boolean) = updateForm { it.copy(isEmergencyInput = value) }
 
     fun addManualApp() {
         val current = (_uiState.value as? UiState.Success)?.data ?: return
@@ -291,15 +293,63 @@ class AllowlistViewModel @Inject constructor(
                             packageName = pkg,
                             label = current.nameInput.ifBlank { pkg.substringAfterLast('.') },
                         ),
-                    ),
+                    ).copy(isEmergency = current.isEmergencyInput),
                 )
                 _uiState.update { state ->
                     if (state is UiState.Success) {
-                        state.copy(data = state.data.copy(packageInput = "", nameInput = "", formError = null))
+                        state.copy(
+                            data = state.data.copy(
+                                packageInput = "",
+                                nameInput = "",
+                                isEmergencyInput = false,
+                                formError = null,
+                            ),
+                        )
                     } else {
                         state
                     }
                 }
+                refresh()
+            } catch (error: Throwable) {
+                updateForm { it.copy(formError = AppErrorMapper.from(error).userMessage) }
+            } finally {
+                _saving.value = false
+            }
+        }
+    }
+
+    fun toggleEmergency(rule: AppRule, isEmergency: Boolean) {
+        viewModelScope.launch {
+            val familyId = parentSessionRepository.current()?.familyId ?: return@launch
+            parentControlStore.upsertAppRule(
+                familyId,
+                childId,
+                rule.copy(
+                    isEmergency = isEmergency,
+                    allowed = if (isEmergency) true else rule.allowed,
+                ),
+            )
+            refresh()
+        }
+    }
+
+    fun toggleInstalledEmergency(app: InstalledAppSummary, isEmergency: Boolean) {
+        viewModelScope.launch {
+            _saving.value = true
+            try {
+                val familyId = parentSessionRepository.current()?.familyId ?: return@launch
+                val existing = (_uiState.value as? UiState.Success)?.data?.rules
+                    ?.firstOrNull { it.packageOrBundleId.equals(app.packageName, ignoreCase = true) }
+                val base = existing ?: ChildAllowlistDefaults.ruleForInstalledApp(app)
+                parentControlStore.upsertAppRule(
+                    familyId,
+                    childId,
+                    base.copy(
+                        isEmergency = isEmergency,
+                        allowed = if (isEmergency) true else base.allowed,
+                        displayName = existing?.displayName?.ifBlank { app.label } ?: app.label,
+                    ),
+                )
                 refresh()
             } catch (error: Throwable) {
                 updateForm { it.copy(formError = AppErrorMapper.from(error).userMessage) }
@@ -374,12 +424,15 @@ fun AllowlistScreen(
                 saving = saving,
                 onBack = onBack,
                 onToggleAllowed = viewModel::toggleAllowed,
+                onToggleEmergency = viewModel::toggleEmergency,
                 onUpdateBlockMinutes = viewModel::updateBlockMinutes,
                 onRemoveRule = viewModel::remove,
                 onAddFromInstalled = viewModel::addFromInstalled,
                 onToggleInstalled = viewModel::toggleInstalled,
+                onToggleInstalledEmergency = viewModel::toggleInstalledEmergency,
                 onPackageChanged = viewModel::onPackageChanged,
                 onNameChanged = viewModel::onNameChanged,
+                onEmergencyInputChanged = viewModel::onEmergencyInputChanged,
                 onAddManualApp = viewModel::addManualApp,
                 onRefresh = viewModel::refresh,
             )
@@ -395,12 +448,15 @@ fun AllowlistContent(
     childName: String = "Child's Device",
     onBack: () -> Unit = {},
     onToggleAllowed: (AppRule, Boolean) -> Unit = { _, _ -> },
+    onToggleEmergency: (AppRule, Boolean) -> Unit = { _, _ -> },
     onUpdateBlockMinutes: (AppRule, Int) -> Unit = { _, _ -> },
     onRemoveRule: (AppRule) -> Unit = {},
     onAddFromInstalled: (InstalledAppSummary) -> Unit = {},
     onToggleInstalled: (InstalledAppSummary, Boolean) -> Unit = { _, _ -> },
+    onToggleInstalledEmergency: (InstalledAppSummary, Boolean) -> Unit = { _, _ -> },
     onPackageChanged: (String) -> Unit = {},
     onNameChanged: (String) -> Unit = {},
+    onEmergencyInputChanged: (Boolean) -> Unit = {},
     onAddManualApp: () -> Unit = {},
     onRefresh: () -> Unit = {},
 ) {
@@ -411,13 +467,14 @@ fun AllowlistContent(
     val allRules = uiState.rules
     val allowedCount = allRules.count { it.allowed }
     val blockedCount = allRules.count { !it.allowed }
-    val emergencyCount = 1 // Phone & Contacts emergency override
+    val emergencyRules = allRules.filter { it.isEmergency }
+    val emergencyCount = emergencyRules.size + 1 // +1 for Phone & Contacts emergency override
 
     val filteredRules = when (selectedFilter) {
         AllowlistFilter.ALL -> allRules
         AllowlistFilter.ALLOWED -> allRules.filter { it.allowed }
         AllowlistFilter.BLOCKED -> allRules.filter { !it.allowed }
-        AllowlistFilter.EMERGENCY -> emptyList()
+        AllowlistFilter.EMERGENCY -> emergencyRules
     }
 
     Surface(
@@ -690,6 +747,7 @@ fun AllowlistContent(
                         iconBase64 = installed?.iconBase64,
                         iconHash = installed?.iconHash,
                         onToggleAllowed = { allowed -> onToggleAllowed(rule, allowed) },
+                        onToggleEmergency = { isEmerg -> onToggleEmergency(rule, isEmerg) },
                         onUpdateBlockMinutes = { minutes -> onUpdateBlockMinutes(rule, minutes) },
                         onRemove = { onRemoveRule(rule) },
                     )
@@ -719,6 +777,8 @@ fun AllowlistContent(
                     .toSet()
                 uiState.installedApps.forEach { app ->
                     val isAllowed = app.packageName.lowercase() in allowedPackages
+                    val existingRule = uiState.rules.firstOrNull { it.packageOrBundleId.equals(app.packageName, ignoreCase = true) }
+                    val isEmergency = existingRule?.isEmergency == true
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = MeritColors.SurfaceContainerLowest,
@@ -745,11 +805,32 @@ fun AllowlistContent(
                                     cornerRadius = 12.dp,
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = app.label,
-                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
-                                        color = MeritColors.OnSurface,
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Text(
+                                            text = app.label,
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+                                            color = MeritColors.OnSurface,
+                                        )
+                                        if (isEmergency) {
+                                            Surface(
+                                                shape = RoundedCornerShape(9999.dp),
+                                                color = MeritColors.TertiaryContainer,
+                                            ) {
+                                                Text(
+                                                    text = "Emergency",
+                                                    style = MaterialTheme.typography.labelSmall.copy(
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                    ),
+                                                    color = MeritColors.OnTertiaryContainer,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                                )
+                                            }
+                                        }
+                                    }
                                     Text(
                                         text = app.packageName,
                                         style = MaterialTheme.typography.bodySmall,
@@ -757,15 +838,33 @@ fun AllowlistContent(
                                     )
                                 }
                             }
-                            Switch(
-                                checked = isAllowed,
-                                onCheckedChange = { checked -> onToggleInstalled(app, checked) },
-                                enabled = !saving,
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = MeritColors.Primary,
-                                ),
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                if (isAllowed) {
+                                    IconButton(
+                                        onClick = { onToggleInstalledEmergency(app, !isEmergency) },
+                                        modifier = Modifier.size(36.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Call,
+                                            contentDescription = "Toggle Emergency",
+                                            tint = if (isEmergency) MeritColors.Tertiary else MeritColors.Outline,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                }
+                                Switch(
+                                    checked = isAllowed,
+                                    onCheckedChange = { checked -> onToggleInstalled(app, checked) },
+                                    enabled = !saving,
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = MeritColors.Primary,
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
@@ -888,6 +987,37 @@ fun AllowlistContent(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MeritColors.SurfaceContainer)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Emergency App",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MeritColors.OnSurface,
+                            )
+                            Text(
+                                text = "Always accessible without limits during daily limit or rest mode",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MeritColors.OnSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = uiState.isEmergencyInput,
+                            onCheckedChange = onEmergencyInputChanged,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MeritColors.OnTertiary,
+                                checkedTrackColor = MeritColors.Tertiary,
+                            ),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
                     MeritPrimaryButton(
                         text = "Add App",
                         onClick = {
@@ -963,6 +1093,7 @@ private fun AppRuleCard(
     iconBase64: String? = null,
     iconHash: String? = null,
     onToggleAllowed: (Boolean) -> Unit,
+    onToggleEmergency: (Boolean) -> Unit = {},
     onUpdateBlockMinutes: (Int) -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -1021,10 +1152,26 @@ private fun AppRuleCard(
                                 color = if (rule.allowed) MeritColors.OnTertiaryFixedVariant else MeritColors.OnSurfaceVariant,
                             )
                         }
+                        if (rule.isEmergency) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(MeritColors.TertiaryContainer)
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                            ) {
+                                Text(
+                                    text = "⚡ Emergency",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MeritColors.OnTertiaryContainer,
+                                )
+                            }
+                        }
                     }
 
                     Text(
-                        text = if (rule.allowed) {
+                        text = if (rule.isEmergency) {
+                            "Emergency App • Accessible without limits even after daily ceiling"
+                        } else if (rule.allowed) {
                             "Complete 3-question quiz • ${rule.cooldownMinutes}m rest break if failed"
                         } else {
                             "Blocked • Complete a learning quiz to unlock"
@@ -1161,6 +1308,55 @@ private fun AppRuleCard(
                                         )
                                     }
                                 }
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (rule.isEmergency) MeritColors.TertiaryContainer.copy(alpha = 0.5f) else MeritColors.SurfaceContainerLowest,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Call,
+                                        contentDescription = null,
+                                        tint = if (rule.isEmergency) MeritColors.Tertiary else MeritColors.OnSurfaceVariant,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Column {
+                                        Text(
+                                            text = "Emergency App (Always Allowed)",
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                            color = MeritColors.OnSurface,
+                                        )
+                                        Text(
+                                            text = "Exempt from daily limits and rest mode lockouts",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                            color = MeritColors.OnSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                Switch(
+                                    checked = rule.isEmergency,
+                                    onCheckedChange = onToggleEmergency,
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = MeritColors.OnTertiary,
+                                        checkedTrackColor = MeritColors.Tertiary,
+                                        uncheckedThumbColor = MeritColors.Outline,
+                                        uncheckedTrackColor = MeritColors.SurfaceContainerHighest,
+                                    ),
+                                )
                             }
                         }
                     }

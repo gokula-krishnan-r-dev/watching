@@ -229,32 +229,8 @@ class ChildParentMenuViewModel @Inject constructor(
 
     fun removeSetLauncherDefault(activity: Activity?) {
         activity?.let { LockTaskGuard.release(it) }
-        runCatching {
-            context.packageManager.clearPackagePreferredActivities(context.packageName)
-        }
-        val homeSettingsIntent = HomeRoleManager.homeSettingsIntent()?.apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        val launched = if (homeSettingsIntent != null && HomeRoleManager.canResolve(context, homeSettingsIntent)) {
-            runCatching { context.startActivity(homeSettingsIntent) }.isSuccess
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val manageDefaults = Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            if (manageDefaults.resolveActivity(context.packageManager) != null) {
-                runCatching { context.startActivity(manageDefaults) }.isSuccess
-            } else {
-                runCatching { context.startActivity(HomeRoleManager.legacyHomeChooserIntent(context)) }.isSuccess
-            }
-        } else {
-            runCatching { context.startActivity(HomeRoleManager.legacyHomeChooserIntent(context)) }.isSuccess
-        }
-
-        _launcherMessage.value = if (launched) {
-            "Default launcher cleared. Please select your phone's standard home app."
-        } else {
-            "Default launcher preferences reset."
-        }
+        HomeRoleManager.switchToNativeLauncher(context)
+        _launcherMessage.value = "Default launcher switched back to native OS launcher."
         refreshLauncherStatus()
     }
 
@@ -262,9 +238,7 @@ class ChildParentMenuViewModel @Inject constructor(
         viewModelScope.launch {
             _busy.value = true
             activity?.let { LockTaskGuard.release(it) }
-            runCatching {
-                context.packageManager.clearPackagePreferredActivities(context.packageName)
-            }
+            HomeRoleManager.switchToNativeLauncher(context)
             lifecycleCoordinator.stop()
             lifecycleCoordinator.markForceSignedOut()
             runCatching { unpairChildDevice() }
@@ -277,9 +251,7 @@ class ChildParentMenuViewModel @Inject constructor(
         viewModelScope.launch {
             _busy.value = true
             activity?.let { LockTaskGuard.release(it) }
-            runCatching {
-                context.packageManager.clearPackagePreferredActivities(context.packageName)
-            }
+            HomeRoleManager.switchToNativeLauncher(context)
             lifecycleCoordinator.stop()
             lifecycleCoordinator.markForceSignedOut()
             runCatching { unpairChildDevice() }
@@ -290,6 +262,7 @@ class ChildParentMenuViewModel @Inject constructor(
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             runCatching { context.startActivity(uninstallIntent) }
+            activity?.finish()
 
             _unpaired.value = true
             _busy.value = false
@@ -590,8 +563,12 @@ fun ChildParentMenuScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val hostActivity = LocalContext.current as? Activity
     LaunchedEffect(unpaired) {
-        if (unpaired) onUnpaired()
+        if (unpaired) {
+            onUnpaired()
+            hostActivity?.finishAffinity()
+        }
     }
     LaunchedEffect(failLockEnded) {
         if (failLockEnded) onFailLockEnded()

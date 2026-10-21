@@ -1,6 +1,7 @@
 package com.meritscreen.feature.launcher
 
 import android.app.role.RoleManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -26,11 +27,46 @@ object HomeRoleManager {
     fun isRoleRequestSupported(context: Context): Boolean =
         DefaultHomeChecker.isRoleRequestSupported(context)
 
+    fun enableHomeLauncher(context: Context) {
+        runCatching {
+            val component = ComponentName(context.packageName, DefaultHomeChecker.HOME_ALIAS_CLASS_NAME)
+            context.packageManager.setComponentEnabledSetting(
+                component,
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                PackageManager.DONT_KILL_APP,
+            )
+        }
+    }
+
+    fun disableHomeLauncher(context: Context) {
+        runCatching {
+            val component = ComponentName(context.packageName, DefaultHomeChecker.HOME_ALIAS_CLASS_NAME)
+            context.packageManager.setComponentEnabledSetting(
+                component,
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP,
+            )
+        }
+        runCatching {
+            context.packageManager.clearPackagePreferredActivities(context.packageName)
+        }
+    }
+
+    fun switchToNativeLauncher(context: Context) {
+        disableHomeLauncher(context)
+        val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        runCatching { context.startActivity(homeIntent) }
+    }
+
     /**
      * Best intent to start via Activity Result (API 29+) or `startActivity` (legacy).
      * Never returns an unresolved intent.
      */
     fun createSetupIntent(context: Context): Intent {
+        enableHomeLauncher(context)
         createRoleRequestIntent(context)?.let { roleIntent ->
             if (canResolve(context, roleIntent)) return roleIntent
         }

@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.meritscreen.core.common.config.AppConfig
+import com.meritscreen.core.common.domain.AppRule
 import com.meritscreen.core.common.domain.ChildPolicy
 import com.meritscreen.core.common.ui.UiState
 import com.meritscreen.core.ui.components.ErrorState
@@ -72,6 +74,7 @@ fun TimeLimitsScreen(
     viewModel: PolicyEditorViewModel = hiltViewModel(),
 ) {
     val state by viewModel.policy.collectAsStateWithLifecycle()
+    val emergencyAppRules by viewModel.emergencyAppRules.collectAsStateWithLifecycle()
     val saving by viewModel.saving.collectAsStateWithLifecycle()
     val saved by viewModel.saved.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
@@ -88,6 +91,7 @@ fun TimeLimitsScreen(
         is UiState.Success -> {
             TimeLimitsContent(
                 policy = current.data,
+                emergencyAppRules = emergencyAppRules,
                 saving = saving,
                 saved = saved,
                 error = error,
@@ -103,6 +107,7 @@ fun TimeLimitsScreen(
 fun TimeLimitsContent(
     modifier: Modifier = Modifier,
     policy: ChildPolicy,
+    emergencyAppRules: List<AppRule> = emptyList(),
     saving: Boolean = false,
     saved: Boolean = false,
     error: String? = null,
@@ -356,6 +361,90 @@ fun TimeLimitsContent(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MeritColors.OnSurfaceVariant,
                             )
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    // Emergency Applications Showcase inside Screen Timer / Ceiling
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MeritColors.TertiaryContainer.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Call,
+                                    contentDescription = null,
+                                    tint = MeritColors.Tertiary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Text(
+                                    text = "Emergency Apps (Exempt from Limit)",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MeritColors.OnTertiaryContainer,
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "Emergency applications can always be used without time limits, even after the daily ceiling is reached. Non-emergency apps will be locked in rest mode on the child home screen.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MeritColors.OnSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(9999.dp),
+                                    color = MeritColors.Tertiary,
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Call,
+                                            contentDescription = null,
+                                            tint = MeritColors.OnTertiary,
+                                            modifier = Modifier.size(12.dp),
+                                        )
+                                        Text(
+                                            text = "Phone & Contacts",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = MeritColors.OnTertiary,
+                                        )
+                                    }
+                                }
+                                emergencyAppRules.forEach { appRule ->
+                                    Surface(
+                                        shape = RoundedCornerShape(9999.dp),
+                                        color = MeritColors.TertiaryContainer,
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, MeritColors.Tertiary),
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            Text(
+                                                text = "⚡ ${appRule.displayName.ifBlank { appRule.packageOrBundleId.substringAfterLast('.') }}",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = MeritColors.OnTertiaryContainer,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

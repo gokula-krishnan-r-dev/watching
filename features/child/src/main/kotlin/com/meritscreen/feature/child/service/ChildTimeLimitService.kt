@@ -147,16 +147,21 @@ class ChildTimeLimitService : Service() {
                             // pause the monitored app. They must never start a fresh app block.
                         } else {
                             // User is in a third-party app
-                            val isEmergency = SessionEngine.isEmergencyPackage(currentForeground, policy)
                             val rules = policyRepository.listAppRules(credential.childId)
                             val rule = rules.firstOrNull { it.packageOrBundleId == currentForeground }
+                            val isEmergency = (rule?.isEmergency == true) || SessionEngine.isEmergencyPackage(currentForeground, policy)
                             val isAllowed = rule?.allowed ?: true
+
+                            val ceiling = policy.dailyCeilingMinutes
+                            val isDailyLimitReached = ceiling != null && snapshot.minutesUsedToday >= ceiling
 
                             if (snapshot.phase == SessionPhase.Shielded && !isEmergency) {
                                 enforceReturnHome()
                             } else if (policy.paused && !isEmergency) {
                                 enforceReturnHome()
                             } else if (!isAllowed && !isEmergency) {
+                                enforceReturnHome()
+                            } else if (isDailyLimitReached && !isEmergency) {
                                 enforceReturnHome()
                             } else if (isAllowed && snapshot.phase != SessionPhase.QuizDue &&
                                 (snapshot.phase != SessionPhase.InBlock || snapshot.activePackage != currentForeground)

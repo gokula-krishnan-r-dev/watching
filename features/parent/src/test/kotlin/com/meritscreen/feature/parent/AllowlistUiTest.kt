@@ -35,4 +35,12 @@ class AllowlistUiTest {
         val ui = AllowlistUi(rules = emptyList(), installedApps = apps)
         assertEquals(apps, ui.pickableApps)
     }
+
+    @Test
+    fun `emergency apps can be identified in rules`() {
+        val emergencyRule = AppRule(appId = "whatsapp", packageOrBundleId = "com.whatsapp", isEmergency = true)
+        val normalRule = AppRule(appId = "yt", packageOrBundleId = "com.youtube", isEmergency = false)
+        val ui = AllowlistUi(rules = listOf(emergencyRule, normalRule))
+        assertEquals(listOf(emergencyRule), ui.rules.filter { it.isEmergency })
+    }
 }
